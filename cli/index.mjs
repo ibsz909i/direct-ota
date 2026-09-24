@@ -12,6 +12,7 @@ const help = `Direct OTA — signed updates on your infrastructure
 direct-ota init --app-id app.example.demo --base-url https://updates.example.com [--provider node|supabase]
 direct-ota export-provider --provider node|supabase --out ./ota-service
 direct-ota native --channel internal|production
+direct-ota patch
 direct-ota doctor
 direct-ota prepare --platform ios|android --version 1.0.1 [--channel internal] [--rollout 100] [--out DIR]
 direct-ota upload --release DIR
@@ -49,9 +50,12 @@ try {
     console.log('Provider files exported. Follow its README to deploy with your public trust configuration.');
   } else {
     const config = await readConfig(root);
-    if (action === 'native' || action === 'doctor') {
+    if (action === 'native' || action === 'patch' || action === 'doctor') {
       const native = await import('./native.mjs');
-      if (action === 'native') {
+      if (action === 'patch') {
+        await native.installNative(root, config);
+        console.log('Pinned native overlay applied. Recorded runtime was not changed.');
+      } else if (action === 'native') {
         await native.installNative(root, config);
         await native.writeNativeConfig(root, config, {channel: values.channel || 'internal'});
         console.log('Native integration prepared. Merge the generated plugin configuration, sync Capacitor, then build and verify each target platform.');

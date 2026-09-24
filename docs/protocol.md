@@ -46,7 +46,7 @@ Already-present, verified bytes return `uploadRequired: false`. Reservations do 
 
 ### promote
 
-Body `{manifest: "<signed release or withdrawal JWS>", expectedSequence: 12}`. Verify the artifact's actual bytes/hash and the reservation, then atomically advance that channel only if its current sequence equals `expectedSequence`. The new sequence must be exactly `expectedSequence + 1`. Return `{sequence, releaseId}`.
+Body `{manifest: "<signed release or withdrawal JWS>", expectedSequence: 12}`. For a release, verify the artifact's actual bytes/hash and the reservation. A signed withdrawal has no artifact and needs no reservation. Then atomically advance that channel only if its current sequence equals `expectedSequence`. The new sequence must be exactly `expectedSequence + 1`. Return `{sequence, releaseId}`.
 
 A conflict is HTTP 409. Do not silently retry with a new expected sequence or override another publisher. Inspect the latest channel, prepare a new instruction, and promote intentionally. A retry of an already applied identical instruction should return its successful result.
 
