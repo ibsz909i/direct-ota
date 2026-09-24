@@ -1,0 +1,5 @@
+[functions.direct-ota-check]
+verify_jwt = false
+
+[functions.direct-ota-publish]
+verify_jwt = false

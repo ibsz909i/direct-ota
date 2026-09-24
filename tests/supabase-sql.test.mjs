@@ -1,0 +1,46 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {execFileSync,execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {readFileSync} from 'node:fs';
+import {randomUUID} from 'node:crypto';
+const enabled=process.env.DIRECT_OTA_SQL_TEST==='1';
+const literal=value=>"'"+String(value).replaceAll("'","''")+"'";
+const run=promisify(execFile);
+test('isolated PostgreSQL migration: privileges, replay, CAS, rollback, withdrawal and restrictive storage policies',{skip:!enabled},async t=>{
+ const host=process.env.PGHOST??'';
+ assert(host.startsWith('/')||['localhost','127.0.0.1','::1'].includes(host),'SQL tests require an explicitly local PGHOST');
+ const database='direct_ota_test_'+randomUUID().replaceAll('-','');
+ const psql=process.env.PSQL||'psql';
+ const sql=(query,asService=false)=>execFileSync(psql,['-X','-v','ON_ERROR_STOP=1','-At','-d',database],{input:(asService?'SET ROLE service_role;\n':'')+query,encoding:'utf8',stdio:['pipe','pipe','pipe']}).trim();
+ execFileSync(psql,['-X','-v','ON_ERROR_STOP=1','-d',process.env.PGDATABASE||'postgres'],{input:`CREATE DATABASE ${database};`,stdio:['pipe','pipe','pipe']});
+ t.after(()=>execFileSync(psql,['-X','-v','ON_ERROR_STOP=1','-d',process.env.PGDATABASE||'postgres'],{input:`DROP DATABASE ${database};`,stdio:['pipe','pipe','pipe']}));
+ sql(`DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon NOLOGIN; END IF; IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF; IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role NOLOGIN BYPASSRLS; END IF; END $$;
+ CREATE SCHEMA storage; CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]); CREATE TABLE storage.objects(id bigint GENERATED ALWAYS AS IDENTITY,name text,bucket_id text,metadata jsonb); ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY; ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+ GRANT USAGE ON SCHEMA storage TO anon,authenticated; GRANT ALL ON ALL TABLES IN SCHEMA storage TO anon,authenticated; GRANT USAGE ON ALL SEQUENCES IN SCHEMA storage TO anon,authenticated;
+ CREATE POLICY legacy_buckets ON storage.buckets FOR ALL TO anon,authenticated USING(true) WITH CHECK(true); CREATE POLICY legacy_objects ON storage.objects FOR ALL TO anon,authenticated USING(true) WITH CHECK(true);`);
+ sql(readFileSync(new URL('../providers/supabase/migrations/20260925000100_direct_ota.sql',import.meta.url),'utf8'));
+ sql(`INSERT INTO direct_ota_private.configuration(key_id,app_id,environment,artifact_base_url,backend_contract,enabled) VALUES('synthetic','app.example.demo','production','https://updates.example.invalid/artifacts',1,true);`);
+ assert.equal(sql("SELECT has_function_privilege('anon','public.direct_ota_catalog()','EXECUTE');"),'f');
+ assert.equal(sql("SELECT has_table_privilege('authenticated','direct_ota_private.releases','SELECT');"),'f');
+ assert.throws(()=>sql("SET ROLE anon; INSERT INTO storage.objects(name,bucket_id,metadata) VALUES('bad','direct-ota','{}');"));
+ assert.equal(sql("SET ROLE authenticated; WITH changed AS (UPDATE storage.buckets SET public=false WHERE id='direct-ota' RETURNING id) SELECT count(*) FROM changed;").split('\n').at(-1),'0');
+ assert.equal(sql("SET ROLE anon; SELECT count(*) FROM storage.buckets WHERE id='direct-ota';").split('\n').at(-1),'0');
+ const runtime='a'.repeat(64),selector={platform:'ios',channel:'internal',runtime};
+ const make=(sequence,overrides={})=>{const releaseId=randomUUID(),hash='b'.repeat(64),path=`ios/${runtime}/${releaseId}/${hash}.zip`;return{protocol:1,appId:'app.example.demo',environment:'production',backendContract:1,...selector,sequence,action:'release',rollout:100,releaseId,version:'1.0.1',issuedAt:new Date().toISOString(),artifact:{path,url:'https://updates.example.invalid/artifacts/'+path,sha256:hash,bytes:10,unpackedBytes:20,files:1,checksum:'synthetic',sessionKey:'synthetic'},...overrides};};
+ function query(action,m,{nonce=randomUUID(),expected=null,verified=false,signed=m?'signed-'+m.releaseId:null}={}){return `SELECT public.direct_ota_command('synthetic',${literal(nonce)},now()+interval '60 seconds',${literal(action)},${signed?literal(signed):'NULL'},${m?literal(JSON.stringify(m))+'::jsonb':'NULL'},${action==='status'?literal(JSON.stringify(selector))+'::jsonb':'NULL'},${expected??'NULL'},${verified?literal(m.artifact.sha256):'NULL'},${verified?m.artifact.bytes:'NULL'});`;}
+ const parse=text=>JSON.parse(text.split('\n').at(-1));
+ const nonce=randomUUID();assert.equal(parse(sql(query('status',null,{nonce}),true)).sequence,0);assert.throws(()=>sql(query('status',null,{nonce}),true));
+ const a=make(1),b=make(1);
+ for(const m of [a,b]){assert.equal(parse(sql(query('reserve',m),true)).uploadRequired,true);sql(`INSERT INTO storage.objects(name,bucket_id,metadata) VALUES(${literal(m.artifact.path)},'direct-ota','{"size":10}');`);}
+ assert.throws(()=>sql(query('promote',a,{expected:0}),true));
+ const concurrent=[a,b].map(m=>run(psql,['-X','-v','ON_ERROR_STOP=1','-At','-d',database,'-c','SET ROLE service_role; '+query('promote',m,{expected:0,verified:true})]));
+ const result=await Promise.allSettled(concurrent);assert.equal(result.filter(r=>r.status==='fulfilled').length,1);assert.equal(result.filter(r=>r.status==='rejected').length,1);
+ const winner=result[0].status==='fulfilled'?a:b,loser=winner===a?b:a;
+ assert.equal(parse(sql(query('promote',winner,{expected:0,verified:true}),true)).sequence,1);
+ assert.throws(()=>sql(query('reserve',make(2,{artifact:loser.artifact})),true));
+ const rollback=make(2,{artifact:winner.artifact});assert.equal(parse(sql(query('reserve',rollback),true)).uploadRequired,false);assert.equal(parse(sql(query('promote',rollback,{expected:1,verified:true}),true)).sequence,2);
+ const withdrawn=make(3,{action:'withdraw'});delete withdrawn.artifact;assert.equal(parse(sql(query('promote',withdrawn,{expected:2}),true)).sequence,3);
+ const catalog=parse(sql('SELECT public.direct_ota_catalog();',true));assert.equal(catalog.length,1);assert.equal(catalog[0].manifest,'signed-'+withdrawn.releaseId);
+ sql('UPDATE direct_ota_private.configuration SET enabled=false WHERE singleton;');assert.equal(parse(sql('SELECT public.direct_ota_catalog();',true)).length,0);assert.throws(()=>sql(query('status',null),true));
+});
