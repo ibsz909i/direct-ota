@@ -14,11 +14,9 @@ export async function selector(root, options) {
   return validateSelector({platform: options.platform, channel: options.channel || 'internal', runtime});
 }
 export async function prepare(root, config, identity, options) {
-  const {fingerprintNative} = await import('./native.mjs');
+  const {verifyNativeProject} = await import('./doctor.mjs');
   const selected = await selector(root, options);
-  const current = await fingerprintNative(root, config);
-  const runtime = typeof current === 'string' ? current : current.runtime;
-  if (runtime !== selected.runtime) throw new Error('Native runtime changed. Produce a new native build before publishing for this runtime.');
+  await verifyNativeProject(root, config);
   const status = await command(config, identity, 'status', selected);
   if (!Number.isSafeInteger(status.sequence) || status.sequence < 0) throw new Error('Invalid channel sequence');
   const releaseId = randomUUID();

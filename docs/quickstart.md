@@ -34,6 +34,8 @@ Deploying a provider is a separate step from initializing the client. Follow its
 
 `direct-ota.config.json` is public configuration. `.direct-ota/identity.json` is private. Back up the identity encrypted, restrict its access, and never commit it. Losing it without a backup requires a new native release with new keys. Read [SECURITY.md](../SECURITY.md).
 
+Check `webDir` and `runtimeInputs` in the generated configuration. Set your actual build output directory and include every native source, configuration, dependency lockfile, and platform directory you ship. Remove a platform directory only if your app does not have that platform.
+
 ## 3. Integrate the native updater
 
 Ensure your native iOS/Android projects already exist. Then:

@@ -60,10 +60,9 @@ try {
         await native.writeNativeConfig(root, config, {channel: values.channel || 'internal'});
         console.log('Native integration prepared. Merge the generated plugin configuration, sync Capacitor, then build and verify each target platform.');
       } else {
-        const state = await native.fingerprintNative(root, config);
-        const recorded = JSON.parse(await readFile(join(root, 'direct-ota.runtime.json'), 'utf8'));
-        if ((typeof state === 'string' ? state : state.runtime) !== recorded.runtime) throw new Error('Native runtime drift detected');
-        console.log('Public configuration and native runtime match. This does not verify deployment or device installation.');
+        const {verifyNativeProject} = await import('./doctor.mjs');
+        await verifyNativeProject(root, config);
+        console.log('Native runtime and generated/synced plugin configuration match. This does not verify deployment or device installation.');
       }
     } else {
       const identity = await readIdentity(root, config, values.identity);
