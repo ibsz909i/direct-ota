@@ -1,0 +1,12 @@
+Direct OTA
+Copyright 2026 Ibrahim Jaber
+
+Licensed under the Mozilla Public License 2.0.
+
+This project integrates and patches @capgo/capacitor-updater 8.51.25,
+Copyright Capgo and its contributors, licensed under MPL-2.0.
+https://github.com/Cap-go/capacitor-updater
+
+The upstream package retains its own copyright and license notices.
+Native overlays and patch definitions distributed here are available in source
+form under the same license. Direct OTA is independent of Capgo and Supabase.
