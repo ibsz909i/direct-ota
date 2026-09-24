@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import https from 'node:https';
-import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {execFile} from 'node:child_process';
@@ -33,6 +33,9 @@ test('CLI publishes, downloads, rolls out, rolls back and withdraws through HTTP
   const {stdout}=await exec(process.execPath,[resolve('cli/index.mjs'),...args,'--project',root],{env:{...process.env,NODE_EXTRA_CA_CERTS:cert},maxBuffer:65536});return stdout.trim();
  };
  await cli(['init','--app-id','app.example.integration','--base-url',base]);
+ await symlink(resolve('node_modules'),join(root,'node_modules'),'dir');
+ await writeFile(join(root,'package.json'),JSON.stringify({name:'synthetic-capacitor-host',dependencies:{'@capgo/capacitor-updater':'8.51.25','@capacitor/app':'^8.0.0'}}));
+ await writeFile(join(root,'capacitor.config.json'),JSON.stringify({appId:'app.example.integration',appName:'Demo',webDir:'www'}));
  const config=JSON.parse(await readFile(join(root,'direct-ota.config.json'),'utf8'));config.webDir='www';config.runtimeInputs=['native-source.txt'];
  await writeFile(join(root,'direct-ota.config.json'),JSON.stringify(config));await writeFile(join(root,'native-source.txt'),'synthetic native contract');
  await mkdir(join(root,'www'));await writeFile(join(root,'www/index.html'),'<main>Release one</main>');
