@@ -4,7 +4,8 @@ import {mkdtemp, readFile, stat, writeFile, mkdir, rm, symlink} from 'node:fs/pr
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
-import {initProject,readConfig,readIdentity} from '../cli/config.mjs';
+import {createPrivateKey, createPublicKey} from 'node:crypto';
+import {initProject,readConfig,readIdentity,validateConfig} from '../cli/config.mjs';
 import {validateUpload, boundedJson, command} from '../cli/transport.mjs';
 import {verifyPublishCommand} from '../src/protocol.ts';
 async function fixture(t) {const p=await mkdtemp(join(tmpdir(),'direct-ota-test-'));t.after(()=>rm(p,{recursive:true,force:true}));return p;}
@@ -15,6 +16,51 @@ test('init creates a private matching identity and never overwrites it',async t=
  assert.doesNotMatch(await readFile(join(root,'direct-ota.config.json'),'utf8'),/PRIVATE KEY|"d"\s*:/);
  assert.match(await readFile(join(root,'.gitignore'),'utf8'),/\.direct-ota\//);
  await assert.rejects(initProject(root,{appId:config.appId,baseUrl:'https://updates.example.invalid'}));
+});
+test('public bundle configuration rejects private and mixed key encodings without rewriting them',async t=>{
+ const root=await fixture(t),config=await initProject(root,{appId:'app.example.demo',baseUrl:'https://updates.example.invalid'});
+ const identity=await readIdentity(root,config),privateKey=createPrivateKey(identity.bundle);
+ const before=await readFile(join(root,'direct-ota.config.json'),'utf8');
+ for(const bundlePublicKey of [
+  identity.bundle,
+  privateKey.export({type:'pkcs1',format:'pem'}),
+  privateKey.export({type:'pkcs8',format:'pem',cipher:'aes-256-cbc',passphrase:'synthetic-test-only'}),
+  privateKey.export({type:'pkcs8',format:'der'}),
+  {key:identity.bundle,format:'pem'},
+  {key:privateKey.export({type:'pkcs8',format:'der'}),format:'der',type:'pkcs8'},
+  identity.bundle.replaceAll('PRIVATE KEY','PUBLIC KEY'),
+  config.bundlePublicKey+identity.bundle,
+  identity.bundle+config.bundlePublicKey,
+ ]) {
+  const supplied=Object.freeze({...config,bundlePublicKey});
+  assert.throws(()=>validateConfig(supplied),/Bundle key must/);
+  assert.equal(supplied.bundlePublicKey===bundlePublicKey,true);
+ }
+ for(const bundlePublicKey of [config.bundlePublicKey,createPublicKey(identity.bundle).export({type:'pkcs1',format:'pem'})]) {
+  const supplied=Object.freeze({...config,bundlePublicKey});
+  assert.equal(validateConfig(supplied)===supplied,true);
+ }
+ assert.equal(await readFile(join(root,'direct-ota.config.json'),'utf8'),before);
+ await readIdentity(root,await readConfig(root));
+});
+test('public manifest JWK rejects private parameters and unrecognized material',async t=>{
+ const root=await fixture(t),config=await initProject(root,{appId:'app.example.demo',baseUrl:'https://updates.example.invalid'});
+ const identity=await readIdentity(root,config);
+ for(const publicJwk of [
+  createPrivateKey(identity.signing).export({format:'jwk'}),
+  {...config.publicJwk,d:null},
+  {...config.publicJwk,d:undefined},
+  {...config.publicJwk,p:'synthetic-private-parameter'},
+  {...config.publicJwk,key:identity.signing},
+  {...config.publicJwk,key_ops:['sign']},
+  {...config.publicJwk,kid:identity.signing},
+  {...config.publicJwk,x:identity.signing},
+  identity.signing,
+ ]) assert.throws(()=>validateConfig({...config,publicJwk}),/Manifest key must/);
+ const publicJwk=Object.freeze({...config.publicJwk,alg:'ES256',use:'sig',key_ops:['verify'],kid:'synthetic-key',ext:true});
+ const supplied=Object.freeze({...config,publicJwk});
+ assert.equal(validateConfig(supplied)===supplied,true);
+ assert.equal(supplied.publicJwk===publicJwk,true);
 });
 test('upload destinations cannot redirect credentials to another host',()=>{
  const config={uploadOrigins:['https://storage.example.invalid']};

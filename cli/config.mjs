@@ -9,14 +9,43 @@ export function httpsUrl(value) {
   if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search || url.href !== value) throw new Error('Use a canonical HTTPS URL without credentials, query, or fragment');
   return url;
 }
+function validatePublicJwk(value) {
+  const fields = ['kty', 'crv', 'x', 'y', 'alg', 'use', 'key_ops', 'kid', 'ext'];
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      Object.keys(value).some(field => !fields.includes(field)) ||
+      value.kty !== 'EC' || value.crv !== 'P-256' ||
+      [value.x, value.y].some(coordinate => typeof coordinate !== 'string' ||
+        !/^[A-Za-z0-9_-]{43}$/.test(coordinate) || Buffer.from(coordinate, 'base64url').toString('base64url') !== coordinate) ||
+      (value.alg !== undefined && value.alg !== 'ES256') ||
+      (value.use !== undefined && value.use !== 'sig') ||
+      (value.key_ops !== undefined && (!Array.isArray(value.key_ops) || value.key_ops.length !== 1 || value.key_ops[0] !== 'verify')) ||
+      (value.kid !== undefined && (typeof value.kid !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(value.kid))) ||
+      (value.ext !== undefined && typeof value.ext !== 'boolean')) throw new Error('Manifest key must contain only public P-256 JWK fields');
+  try { createPublicKey({key: value, format: 'jwk'}); }
+  catch { throw new Error('Manifest key must be a valid public P-256 JWK'); }
+}
+function validateBundlePublicKey(value) {
+  // createPublicKey also accepts private keys. Check the original encoding and
+  // compare its public re-encoding so private or trailing material cannot survive.
+  const match = typeof value === 'string' && value.length <= 1024 &&
+    /^-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY)-----\r?\n[A-Za-z0-9+/=\r\n]+-----END \1-----\r?\n?$/.exec(value);
+  if (!match) throw new Error('Bundle key must contain only a public RSA PEM');
+  let key;
+  try { key = createPublicKey({key: value, format: 'pem'}); }
+  catch { throw new Error('Bundle key must be a valid public RSA PEM'); }
+  if (key.asymmetricKeyType !== 'rsa' || key.asymmetricKeyDetails.modulusLength !== 2048) throw new Error('Bundle key must be RSA-2048');
+  const canonical = key.export({type: match[1] === 'RSA PUBLIC KEY' ? 'pkcs1' : 'spki', format: 'pem'});
+  const normalized = value.replace(/\r\n/g, '\n');
+  if (canonical !== (normalized.endsWith('\n') ? normalized : normalized + '\n')) throw new Error('Bundle key must contain only a canonical public RSA PEM');
+}
 export function validateConfig(config) {
   if (config.schema !== 1) throw new Error('Unsupported configuration schema');
+  validatePublicJwk(config.publicJwk);
   validateTrust(config);
   for (const key of ['checkUrl', 'publishUrl', ...(config.eventsUrl ? ['eventsUrl'] : [])]) httpsUrl(config[key]);
   if (!Array.isArray(config.uploadOrigins) || !config.uploadOrigins.length || config.uploadOrigins.some(x => httpsUrl(x + '/').origin !== x)) throw new Error('Specify exact HTTPS upload origins');
   if (typeof config.webDir !== 'string' || !config.webDir || !Array.isArray(config.runtimeInputs) || !config.runtimeInputs.length || config.runtimeInputs.some(x => typeof x !== 'string' || !x)) throw new Error('Configure webDir and runtimeInputs');
-  const key = createPublicKey(config.bundlePublicKey);
-  if (key.asymmetricKeyType !== 'rsa' || key.asymmetricKeyDetails.modulusLength !== 2048) throw new Error('Bundle key must be RSA-2048');
+  validateBundlePublicKey(config.bundlePublicKey);
   for (const field of Object.keys(config)) if (/private|secret|token|password/i.test(field)) throw new Error('Public configuration must not contain secrets');
   return config;
 }
