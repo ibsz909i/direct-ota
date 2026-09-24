@@ -1,0 +1,16 @@
+{
+  "name": "direct-ota",
+  "version": "0.1.0",
+  "description": "Signed OTA updates for Capacitor apps, on infrastructure you control.",
+  "type": "module",
+  "license": "MPL-2.0",
+  "author": "Ibrahim Jaber",
+  "engines": {"node": ">=24"},
+  "bin": {"direct-ota": "cli/index.mjs"},
+  "exports": {".": "./dist/client/index.js", "./protocol": "./dist/protocol.js", "./server": "./providers/node/server.mjs"},
+  "files": ["cli", "dist", "native", "providers", "src/protocol.ts", "docs", "skills", "README.md", "AGENTS.md", "LICENSE", "NOTICE"],
+  "scripts": {"build": "tsc", "typecheck": "tsc --noEmit", "test": "node --test tests/*.test.mjs", "check": "npm run typecheck && npm test && npm run build"},
+  "dependencies": {"@capgo/capacitor-updater": "8.51.25"},
+  "peerDependencies": {"@capacitor/core": "^8.0.0", "@capacitor/app": "^8.0.0"},
+  "devDependencies": {"typescript": "~5.9.3", "@types/node": "^24.0.0", "@capacitor/core": "^8.1.0", "@capacitor/app": "^8.0.0"}
+}

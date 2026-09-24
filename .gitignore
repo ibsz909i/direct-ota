@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.work/
+.superpowers/
+.env
+.env.*
+!.env.example
+.direct-ota/
+*.pem
+*.key
+*.p12
+*.pfx
+.DS_Store
+coverage/
+examples/**/ios/
+examples/**/android/
