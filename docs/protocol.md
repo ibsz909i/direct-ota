@@ -42,7 +42,7 @@ Body `{manifest: "<signed release JWS>"}`. The server verifies the nested manife
 }
 ```
 
-Already-present, verified bytes return `uploadRequired: false`. Reservations do not activate releases. Upload capabilities authorize one path, expire, and cannot overwrite existing objects. Never log their URLs. The CLI permits only configured HTTPS upload origins and rejects redirects.
+`uploadRequired: false` means the provider found a candidate object at the immutable path. The Node provider verifies bytes when reserving; the Supabase provider checks object metadata at reservation. Every promotion must verify actual bytes and hash before activation. Reservations do not activate releases. Upload capabilities authorize one path, expire, and cannot overwrite existing objects. Never log their URLs. The CLI permits only configured HTTPS upload origins and rejects redirects.
 
 ### promote
 

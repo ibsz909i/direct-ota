@@ -1,14 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, mkdir, rm, writeFile, readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import {mkdtemp, mkdir, rm, writeFile, readFile, symlink} from 'node:fs/promises';
+import {join, dirname, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
+import {fileURLToPath} from 'node:url';
 import {initProject} from '../cli/config.mjs';
 import {writeNativeConfig} from '../cli/native.mjs';
 import {verifyNativeProject} from '../cli/doctor.mjs';
 
 test('doctor rejects stale native settings even when the recorded runtime matches',async t=>{
  const root=await mkdtemp(join(tmpdir(),'direct-ota-doctor-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ await symlink(join(resolve(dirname(fileURLToPath(import.meta.url)),'..'),'node_modules'),join(root,'node_modules'),'dir');
+ await writeFile(join(root,'package.json'),JSON.stringify({name:'synthetic-capacitor-host',dependencies:{'@capgo/capacitor-updater':'8.51.25','@capacitor/app':'^8.0.0'}}));
+ await writeFile(join(root,'capacitor.config.json'),JSON.stringify({appId:'app.example.demo',appName:'Demo',webDir:'www'}));
+ await mkdir(join(root,'www'));await writeFile(join(root,'www/index.html'),'<html></html>');
  const config=await initProject(root,{appId:'app.example.demo',baseUrl:'https://updates.example.invalid'});
  config.runtimeInputs=['native-source.txt'];await writeFile(join(root,'native-source.txt'),'synthetic native source');
  const result=writeNativeConfig(root,config,{channel:'internal'});

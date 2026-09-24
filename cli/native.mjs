@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto, {createPublicKey} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -37,6 +39,46 @@ function requireConfig(config) {
   }
   const bundle = createPublicKey(config.bundlePublicKey);
   if (bundle.asymmetricKeyType !== 'rsa' || bundle.asymmetricKeyDetails?.modulusLength !== 2048) throw Error('Bundle key must be RSA-2048');
+}
+
+/** Use the host's Capacitor CLI to confirm the plugins it will actually sync. */
+export function verifyCapacitorPlugins(projectRoot) {
+  const root = path.resolve(projectRoot);
+  const pkg = readJson(path.join(root, 'package.json'));
+  const declared = {...pkg.dependencies, ...pkg.devDependencies};
+  for (const name of ['@capgo/capacitor-updater', '@capacitor/app']) {
+    if (!Object.hasOwn(declared, name)) throw Error(`Install ${name} as a direct app dependency before Direct OTA native setup`);
+  }
+  const hostRequire = createRequire(path.join(root, 'package.json'));
+  let configPath, pluginPath;
+  try {
+    configPath = hostRequire.resolve('@capacitor/cli/dist/config.js');
+    pluginPath = hostRequire.resolve('@capacitor/cli/dist/plugin.js');
+    const updater = readJson(hostRequire.resolve('@capgo/capacitor-updater/package.json'));
+    const app = readJson(hostRequire.resolve('@capacitor/app/package.json'));
+    const cli = readJson(hostRequire.resolve('@capacitor/cli/package.json'));
+    if (updater.version !== updaterVersion || !/^8\./.test(app.version) || !/^8\./.test(cli.version)) throw Error('Unsupported Capacitor plugin version');
+  } catch {
+    throw Error('Install Capacitor CLI 8, @capacitor/app 8, and @capgo/capacitor-updater 8.51.25 in the host app');
+  }
+  const script = `const {loadConfig}=require(process.argv[1]);const {getPlugins}=require(process.argv[2]);
+    (async()=>{const c=await loadConfig();const found={};for(const p of ['ios','android'])found[p]=(await getPlugins(c,p)).map(x=>x.id);
+    process.stdout.write('DIRECT_OTA_DISCOVERY='+JSON.stringify(found)+'\\n')})().catch(()=>process.exit(2));`;
+  const result = spawnSync(process.execPath, ['-e', script, configPath, pluginPath], {
+    cwd: root, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024,
+  });
+  if (result.status !== 0) throw Error('Capacitor CLI plugin discovery failed. Check capacitor.config and installed host plugins.');
+  const marker = result.stdout?.split('\n').find(line=>line.startsWith('DIRECT_OTA_DISCOVERY='));
+  if (!marker) throw Error('Capacitor CLI plugin discovery did not return a plugin list');
+  let found;
+  try { found = JSON.parse(marker.slice('DIRECT_OTA_DISCOVERY='.length)); }
+  catch { throw Error('Capacitor CLI plugin discovery returned invalid data'); }
+  for (const platform of ['ios','android']) {
+    for (const name of ['@capgo/capacitor-updater','@capacitor/app']) {
+      if (!found[platform]?.includes(name)) throw Error(`${platform} Capacitor plugin discovery excludes ${name}. Check includePlugins in capacitor.config.`);
+    }
+  }
+  return found;
 }
 
 /** Apply the exact Direct OTA overlay to an installed, pristine Capgo 8.51.25 package. */

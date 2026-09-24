@@ -1,9 +1,10 @@
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
-import {fingerprintNative, nativePluginConfig} from './native.mjs';
+import {fingerprintNative, nativePluginConfig, verifyCapacitorPlugins} from './native.mjs';
 
 export async function verifyNativeProject(root, config) {
+  verifyCapacitorPlugins(root);
   const recorded = JSON.parse(await readFile(join(root, 'direct-ota.runtime.json'), 'utf8'));
   const runtime = fingerprintNative(root, config);
   if (recorded.protocol !== 1 || recorded.runtime !== runtime) throw new Error('Native runtime drift detected. Prepare and verify a new native build.');

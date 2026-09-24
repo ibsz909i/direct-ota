@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import {parseArgs} from 'node:util';
 import {resolve, join, dirname} from 'node:path';
-import {readFile, writeFile, mkdir, cp} from 'node:fs/promises';
+import {mkdir, cp, readdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {readConfig, readIdentity, initProject} from './config.mjs';
 import {command} from './transport.mjs';
@@ -42,10 +42,19 @@ try {
     const dest = resolve(root, values.out);
     await mkdir(dest, {recursive: false});
     const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    await cp(join(packageRoot, 'providers', values.provider), dest, {recursive: true, errorOnExist: true, force: false});
+    const source = join(packageRoot, 'providers', values.provider);
+    const developmentProtocol = join(source, 'functions/_shared/protocol.ts');
+    for (const name of await readdir(source)) {
+      if (values.provider === 'node' && (name === '.gitignore' || name === 'gitignore.template')) continue;
+      await cp(join(source, name), join(dest, name), {recursive: true, errorOnExist: true, force: false,
+        filter: item => item !== developmentProtocol});
+    }
+    if (values.provider === 'node') {
+      await cp(join(source, 'gitignore.template'), join(dest, '.gitignore'), {errorOnExist: true, force: false});
+    }
     if (values.provider === 'supabase') {
       await mkdir(join(dest, 'functions/_shared'), {recursive: true});
-      await cp(join(packageRoot,'src/protocol.ts'), join(dest,'functions/_shared/protocol.ts'));
+      await cp(join(packageRoot,'src/protocol.ts'), join(dest,'functions/_shared/protocol.ts'), {errorOnExist: true, force: false});
     }
     console.log('Provider files exported. Follow its README to deploy with your public trust configuration.');
   } else {
@@ -53,9 +62,11 @@ try {
     if (action === 'native' || action === 'patch' || action === 'doctor') {
       const native = await import('./native.mjs');
       if (action === 'patch') {
+        native.verifyCapacitorPlugins(root);
         await native.installNative(root, config);
         console.log('Pinned native overlay applied. Recorded runtime was not changed.');
       } else if (action === 'native') {
+        native.verifyCapacitorPlugins(root);
         await native.installNative(root, config);
         await native.writeNativeConfig(root, config, {channel: values.channel || 'internal'});
         console.log('Native integration prepared. Merge the generated plugin configuration, sync Capacitor, then build and verify each target platform.');

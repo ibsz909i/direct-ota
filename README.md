@@ -43,7 +43,7 @@ Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native bui
 Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases), then initialize your app:
 
 ```sh
-npm install ./direct-ota-0.1.0.tgz
+npm install --save-exact ./direct-ota-0.1.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 npx direct-ota init \
   --app-id app.example.demo \
   --base-url https://updates.example.com \
@@ -51,6 +51,7 @@ npx direct-ota init \
 ```
 
 This creates public configuration and a **new private publishing identity**. It never uses your application account or backend service key as the publishing identity.
+Keep both native plugins as direct app dependencies so Capacitor 8 discovers them. If your Capacitor config uses `includePlugins`, include both on every target platform; `native` and `doctor` check actual plugin discovery.
 
 Continue with the [setup guide](docs/quickstart.md). It covers deploying a provider, integrating the native updater, protecting in-progress actions, and sending your first update. After the initial native release, the everyday flow is:
 

@@ -1,6 +1,7 @@
 # Direct OTA Node provider
 
 This template launches the provider from an installed `direct-ota` package. Node 24+ is required. Keep one process per persistent data directory and put an HTTPS reverse proxy in front of it.
+The export includes a `.gitignore` for local runtime state and credentials; keep it when committing the service template.
 
 1. Install the Direct OTA release tarball in this exported directory: `npm install /path/to/direct-ota-0.1.0.tgz`.
 2. Copy your **public** `direct-ota.config.json` here. Its artifact base must end in `/artifacts`, for example `https://updates.example.com/artifacts`. Do not copy `.direct-ota/identity.json` to the server.

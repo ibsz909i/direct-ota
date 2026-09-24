@@ -1,0 +1,9 @@
+node_modules/
+ota-data/
+*.sqlite
+*.sqlite-*
+upload-secret
+service.lock
+.env
+.env.*
+!.env.example
