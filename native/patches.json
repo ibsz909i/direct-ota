@@ -1,0 +1,118 @@
+[
+  {
+    "path": "ios/Sources/CapacitorUpdaterPlugin/CapacitorUpdaterPlugin.swift",
+    "sha256": "3e100e00b452523a9ac97e1ec098e0637ed4953cd58a455fbe86df3cf22ce2a3",
+    "edits": [
+      {
+        "find": "    public var implementation = CapgoUpdater()",
+        "replace": "    private lazy var directOta = DirectOtaController(self)\n    @objc func otaState(_ call: CAPPluginCall) { DispatchQueue.main.async { call.resolve(self.directOta.state()) } }\n    @objc func otaAccept(_ call: CAPPluginCall) { DispatchQueue.main.async { do { try self.directOta.accept(call.getString(\"manifest\", \"\")); call.resolve(self.directOta.state()) } catch { call.reject((error as? DirectOtaFailure)?.rawValue ?? \"OTA_INVALID\") } } }\n    @objc func otaDownload(_ call: CAPPluginCall) { DispatchQueue.main.async { self.directOta.download(cellular: call.getBool(\"allowCellular\", false)) { error in if let error { call.reject((error as? DirectOtaFailure)?.rawValue ?? \"OTA_NETWORK\") } else { call.resolve(self.directOta.state()) } } } }\n    @objc func otaPause(_ call: CAPPluginCall) { DispatchQueue.main.async { self.directOta.pause(); call.resolve() } }\n    @objc func otaActivate(_ call: CAPPluginCall) { DispatchQueue.main.async { do { try self.directOta.activate(); call.resolve() } catch { call.reject(\"OTA_INVALID\") } } }\n    @objc func otaReady(_ call: CAPPluginCall) { DispatchQueue.main.async { self.notifyAppReady(call); self.directOta.markReady() } }\n\n    public var implementation = CapgoUpdater()"
+      },
+      {
+        "find": "    public let pluginMethods: [CAPPluginMethod] = [",
+        "replace": "    public let pluginMethods: [CAPPluginMethod] = [\n        CAPPluginMethod(name: \"otaState\", returnType: CAPPluginReturnPromise),\n        CAPPluginMethod(name: \"otaAccept\", returnType: CAPPluginReturnPromise),\n        CAPPluginMethod(name: \"otaDownload\", returnType: CAPPluginReturnPromise),\n        CAPPluginMethod(name: \"otaPause\", returnType: CAPPluginReturnPromise),\n        CAPPluginMethod(name: \"otaActivate\", returnType: CAPPluginReturnPromise),\n        CAPPluginMethod(name: \"otaReady\", returnType: CAPPluginReturnPromise),\n"
+      },
+      {
+        "find": "    @objc func download(_ call: CAPPluginCall) {",
+        "replace": "    @objc func download(_ call: CAPPluginCall) {\n        if directOta.requiresVerifiedApi { call.reject(\"OTA_VERIFIED_API_REQUIRED\"); return }"
+      },
+      {
+        "find": "    @objc func set(_ call: CAPPluginCall) {",
+        "replace": "    @objc func set(_ call: CAPPluginCall) {\n        if !directOta.mayActivate(call.getString(\"id\", \"\")) { call.reject(\"OTA_INVALID\"); return }"
+      },
+      {
+        "find": "    @objc func next(_ call: CAPPluginCall) {",
+        "replace": "    @objc func next(_ call: CAPPluginCall) {\n        if directOta.requiresVerifiedApi { call.reject(\"OTA_VERIFIED_API_REQUIRED\"); return }"
+      },
+      {
+        "find": "    func checkAppReady() {",
+        "replace": "    func checkAppReady() {\n        if directOta.enabled { directOta.watchReady { [weak self] in self?.checkRevert() }; return }"
+      },
+      {
+        "find": "    @objc func startPreviewSession(_ call: CAPPluginCall) {",
+        "replace": "    @objc func startPreviewSession(_ call: CAPPluginCall) {\n        if directOta.requiresVerifiedApi { call.reject(\"OTA_MANIFEST_REQUIRED\"); return }"
+      },
+      {
+        "find": "    @objc func setPreview(_ call: CAPPluginCall) {",
+        "replace": "    @objc func setPreview(_ call: CAPPluginCall) {\n        if directOta.requiresVerifiedApi { call.reject(\"OTA_MANIFEST_REQUIRED\"); return }"
+      },
+      {
+        "find": "    @objc func updatePreview(_ call: CAPPluginCall) {",
+        "replace": "    @objc func updatePreview(_ call: CAPPluginCall) {\n        if directOta.requiresVerifiedApi { call.reject(\"OTA_MANIFEST_REQUIRED\"); return }"
+      },
+      {
+        "find": "    @objc func setShakeChannelSelector(_ call: CAPPluginCall) {",
+        "replace": "    @objc func setShakeChannelSelector(_ call: CAPPluginCall) {\n        if directOta.requiresVerifiedApi { call.reject(\"OTA_MANIFEST_REQUIRED\"); return }"
+      }
+    ],
+    "patchedSha256": "93349c12ab8ef3f06db22c372887767ec40e5854b4add293360bd986867f09ef"
+  },
+  {
+    "path": "ios/Sources/CapacitorUpdaterPlugin/CapgoUpdater.swift",
+    "sha256": "2765c3d97cf69364199ed2214614f74737a3e2cbf31371ef3395386c961e05f5",
+    "edits": [
+      {
+        "find": "    public func download(url: URL,",
+        "replace": "    func directOtaImport(zip: URL, id: String, version: String, checksum: String) throws {\n        try self.saveDownloaded(sourceZip: zip, id: id, base: self.libraryDir.appendingPathComponent(self.bundleDirectory), notify: false)\n        let info = BundleInfo(id: id, version: version, status: BundleStatus.PENDING, downloaded: Date(), checksum: checksum)\n        guard self.saveBundleInfo(id: id, bundle: info) else { throw DirectOtaFailure.storage }\n    }\n\n    public func download(url: URL,"
+      }
+    ],
+    "patchedSha256": "9e5839dde834eeed98beb87bfb8bd80184647641a7b309a56154da2f9be18d5a"
+  },
+  {
+    "path": "android/src/main/java/ee/forgr/capacitor_updater/CapacitorUpdaterPlugin.java",
+    "sha256": "8712a73d488a28cf8f78380cebf525815735fbeac6b384e4c14545db96e34eff",
+    "edits": [
+      {
+        "find": "    protected CapgoUpdater implementation;",
+        "replace": "    private DirectOta directOtaController;\n    private synchronized DirectOta directOta() { if(directOtaController==null) directOtaController=new DirectOta(this); return directOtaController; }\n    void directOtaEmit(JSObject state) { notifyListeners(\"otaStateChange\", state); }\n    boolean directOtaReload() { return this.reloadWithoutWaitingForAppReady(); }\n    @PluginMethod public void otaState(PluginCall call) { call.resolve(directOta().state()); }\n    @PluginMethod public void otaAccept(PluginCall call) { try { directOta().accept(call.getString(\"manifest\", \"\")); call.resolve(directOta().state()); } catch(Exception e) { String code=e.getMessage(); call.reject(code!=null && code.matches(\"OTA_[A-Z_]+\") ? code : \"OTA_INVALID\"); } }\n    @PluginMethod public void otaDownload(PluginCall call) { directOta().download(call.getBoolean(\"allowCellular\", false),call); }\n    @PluginMethod public void otaPause(PluginCall call) { directOta().pause(); call.resolve(); }\n    @PluginMethod public void otaActivate(PluginCall call) { directOta().activate(call); }\n    @PluginMethod public void otaReady(PluginCall call) { notifyAppReady(call); directOta().markReady(); }\n\n    protected CapgoUpdater implementation;"
+      },
+      {
+        "find": "    public void download(final PluginCall call) {",
+        "replace": "    public void download(final PluginCall call) {\n        if(directOta().requiresVerifiedApi()){call.reject(\"OTA_VERIFIED_API_REQUIRED\");return;}"
+      },
+      {
+        "find": "    public void set(final PluginCall call) {",
+        "replace": "    public void set(final PluginCall call) {\n        if(!directOta().mayActivate(call.getString(\"id\", \"\"))){call.reject(\"OTA_INVALID\");return;}"
+      },
+      {
+        "find": "    public void next(final PluginCall call) {",
+        "replace": "    public void next(final PluginCall call) {\n        if(directOta().requiresVerifiedApi()){call.reject(\"OTA_VERIFIED_API_REQUIRED\");return;}"
+      },
+      {
+        "find": "    private void checkAppReady(final long waitTimeMs) {",
+        "replace": "    private void checkAppReady(final long waitTimeMs) {\n        if(directOta().enabled()){directOta().watchReady(()->this.checkRevert());return;}"
+      },
+      {
+        "find": "    protected void handleOnDestroy() {",
+        "replace": "    protected void handleOnDestroy() {\n        if(directOtaController!=null) directOtaController.destroy();"
+      },
+      {
+        "find": "    public void startPreviewSession(final PluginCall call) {",
+        "replace": "    public void startPreviewSession(final PluginCall call) {\n        if(directOta().requiresVerifiedApi()){call.reject(\"OTA_MANIFEST_REQUIRED\");return;}"
+      },
+      {
+        "find": "    public void setPreview(final PluginCall call) {",
+        "replace": "    public void setPreview(final PluginCall call) {\n        if(directOta().requiresVerifiedApi()){call.reject(\"OTA_MANIFEST_REQUIRED\");return;}"
+      },
+      {
+        "find": "    public void updatePreview(final PluginCall call) {",
+        "replace": "    public void updatePreview(final PluginCall call) {\n        if(directOta().requiresVerifiedApi()){call.reject(\"OTA_MANIFEST_REQUIRED\");return;}"
+      },
+      {
+        "find": "    public void setShakeChannelSelector(final PluginCall call) {",
+        "replace": "    public void setShakeChannelSelector(final PluginCall call) {\n        if(directOta().requiresVerifiedApi()){call.reject(\"OTA_MANIFEST_REQUIRED\");return;}"
+      }
+    ],
+    "patchedSha256": "262cc4c56579648f9e12883b705703768cd38f51d9734cde7d6849878505286e"
+  },
+  {
+    "path": "android/src/main/java/ee/forgr/capacitor_updater/CapgoUpdater.java",
+    "sha256": "de42e74d9876a6348f86df1f1b2584aadb76e2a48b9cb116240a9bee90d900fb",
+    "edits": [
+      {
+        "find": "    public Boolean finishDownload(",
+        "replace": "    void directOtaImport(File zip, String id, String version, String checksum) throws IOException {\n        File extracted = this.unzip(id, zip, TEMP_UNZIP_PREFIX + this.randomString());\n        try { this.flattenAssets(extracted, this.getBundleDirectory(id));\n            if(!this.saveBundleInfo(id, new BundleInfo(id, version, BundleStatus.PENDING, new Date(System.currentTimeMillis()), checksum))) throw new IOException(\"OTA_STORAGE\");\n        } finally { safeDelete(extracted); }\n    }\n\n    public Boolean finishDownload("
+      }
+    ],
+    "patchedSha256": "0ba8df48facbfab51e0f47b6719600a49e164462911cee9ae07d7680fdca1666"
+  }
+]
