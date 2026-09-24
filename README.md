@@ -2,7 +2,7 @@
 
 # Direct OTA
 
-**Ship frontend fixes to installed mobile apps without a new store build for every change.**
+**Ship frontend fixes to installed mobile apps without a new App Store or Google Play submission for every compatible change.**
 
 Direct OTA publishes signed JavaScript, HTML, CSS, and asset updates for Capacitor apps on iOS and Android. Fix a broken screen, adjust a layout, or update frontend behavior, then let installed apps download the compatible release from infrastructure you control.
 
