@@ -6,7 +6,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {installNative, fingerprintNative, writeNativeConfig} from '../cli/native.mjs';
+import {installNative, fingerprintNative, writeNativeConfig, nativePluginConfig} from '../cli/native.mjs';
+import {initProject, readIdentity} from '../cli/config.mjs';
+import {encryptBundle} from '../cli/crypto.mjs';
+import {validateManifest} from '../dist/protocol.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const config={schema:1,appId:'app.example.demo',environment:'test',backendContract:1,
@@ -22,7 +25,7 @@ test('native overlay checks pinned upstream, applies exact hashes and is idempot
   const target=path.join(fixture,'node_modules/@capgo/capacitor-updater');
   fs.mkdirSync(path.dirname(target),{recursive:true});fs.cpSync(source,target,{recursive:true});
   const result=installNative(fixture,config);
-  assert.equal(result.patchedFiles,4);assert.equal(result.overlayFiles,3);
+  assert.equal(result.patchedFiles,4);assert.equal(result.overlayFiles,4);
   const patches=JSON.parse(fs.readFileSync(path.join(root,'native/patches.json')));
   for(const patch of patches)assert.equal(digest(path.join(target,patch.path)),patch.patchedSha256);
   assert.doesNotThrow(()=>installNative(fixture,config));
@@ -71,5 +74,51 @@ test('Swift protocol verifies synthetic signatures and rejects drift',t=>{
   t.after(()=>fs.rmSync(fixture,{recursive:true,force:true}));
   const executable=path.join(fixture,'protocol-test');
   execFileSync('swiftc',[path.join(root,'native/ios/DirectOtaProtocol.swift'),path.join(root,'native/tests/main.swift'),'-o',executable],{stdio:'pipe'});
-  assert.match(execFileSync(executable,{encoding:'utf8'}),/signature, compatibility, archive path and range tests passed/);
+  assert.match(execFileSync(executable,[path.join(root,'native/tests/semver.txt')],{encoding:'utf8'}),/signature, compatibility, archive path and range tests passed/);
+});
+
+test('Android version validator matches the shared SemVer corpus',t=>{
+  if(spawnSync('javac',['-version']).status!==0){t.skip('Java compiler unavailable');return;}
+  const fixture=fs.mkdtempSync(path.join(os.tmpdir(),'direct-ota-java-'));
+  t.after(()=>fs.rmSync(fixture,{recursive:true,force:true}));
+  execFileSync('javac',['-d',fixture,path.join(root,'native/android/DirectOtaVersion.java'),path.join(root,'native/tests/VersionCorpus.java')],{stdio:'pipe'});
+  assert.match(execFileSync('java',['-cp',fixture,'ee.forgr.capacitor_updater.VersionCorpus',path.join(root,'native/tests/semver.txt')],{encoding:'utf8'}),/15 cases passed/);
+});
+
+test('public protocol matches the native SemVer corpus',()=>{
+  const trust={appId:'app.example.demo',environment:'test',artifactBaseUrl:'https://example.invalid/artifacts',
+    keyId:'synthetic-key',publicJwk:crypto.generateKeyPairSync('ec',{namedCurve:'prime256v1'}).publicKey.export({format:'jwk'}),backendContract:1};
+  const manifest={protocol:1,appId:trust.appId,environment:trust.environment,platform:'ios',channel:'production',
+    runtime:'a'.repeat(64),sequence:1,backendContract:1,rollout:100,action:'withdraw',
+    releaseId:'00000000-0000-4000-8000-000000000001',version:'1.2.3',issuedAt:new Date().toISOString()};
+  const corpus=fs.readFileSync(path.join(root,'native/tests/semver.txt'),'utf8').trim().split('\n');
+  for(const line of corpus){
+    const value={...manifest,version:line.slice(1)};
+    const accepted=(()=>{try{validateManifest(value,trust);return true;}catch{return false;}})();
+    assert.equal(accepted,line.startsWith('+'),`SemVer mismatch: ${line}`);
+  }
+});
+
+test('default identity emits Capgo PKCS#1 key and decrypts with pinned upstream cipher',async t=>{
+  if(process.platform!=='darwin'||spawnSync('swiftc',['--version']).status!==0){t.skip('Swift CryptoKit compiler unavailable');return;}
+  const fixture=fs.mkdtempSync(path.join(os.tmpdir(),'direct-ota-capgo-'));
+  t.after(()=>fs.rmSync(fixture,{recursive:true,force:true}));
+  const publicConfig=await initProject(fixture,{appId:'app.example.demo',baseUrl:'https://example.invalid'});
+  const identity=await readIdentity(fixture,publicConfig);
+  const plugin=nativePluginConfig(publicConfig,'a'.repeat(64),'internal');
+  assert.match(publicConfig.bundlePublicKey,/^-----BEGIN PUBLIC KEY-----/);
+  assert.match(plugin.publicKey,/^-----BEGIN RSA PUBLIC KEY-----/);
+  assert.equal(crypto.createPublicKey(plugin.publicKey).export({type:'spki',format:'pem'}),publicConfig.bundlePublicKey);
+  const upstream=path.join(root,'node_modules/@capgo/capacitor-updater/ios/Sources/CapacitorUpdaterPlugin');
+  const executable=path.join(fixture,'capgo-crypto-test');
+  execFileSync('swiftc',[
+    ...['CryptoCipher.swift','RSA.swift','CapgoRawRsa.swift','AES.swift'].map(file=>path.join(upstream,file)),
+    path.join(root,'native/tests/crypto/main.swift'),'-o',executable,
+  ],{stdio:'pipe'});
+  const plain=Buffer.from('synthetic Direct OTA encrypted payload');
+  const expected=crypto.createHash('sha256').update(plain).digest('hex');
+  const encrypted=encryptBundle(plain,identity.bundle);
+  const encryptedPath=path.join(fixture,'encrypted.bin'),publicPath=path.join(fixture,'native-public.pem');
+  fs.writeFileSync(encryptedPath,encrypted.bytes);fs.writeFileSync(publicPath,plugin.publicKey);
+  assert.match(execFileSync(executable,[encryptedPath,publicPath,encrypted.checksum,encrypted.sessionKey,expected],{encoding:'utf8'}),/Upstream Capgo checksum and session decryption passed/);
 });

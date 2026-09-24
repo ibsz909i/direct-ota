@@ -66,6 +66,7 @@ export function installNative(projectRoot, config, _options = {}) {
     ['ios/DirectOta.swift', 'ios/Sources/CapacitorUpdaterPlugin/DirectOta.swift'],
     ['ios/DirectOtaProtocol.swift', 'ios/Sources/CapacitorUpdaterPlugin/DirectOtaProtocol.swift'],
     ['android/DirectOta.java', 'android/src/main/java/ee/forgr/capacitor_updater/DirectOta.java'],
+    ['android/DirectOtaVersion.java', 'android/src/main/java/ee/forgr/capacitor_updater/DirectOtaVersion.java'],
   ];
   for (const [source, target] of overlay) {
     const bytes = fs.readFileSync(path.join(packageRoot, 'native', source));
@@ -114,7 +115,7 @@ export function fingerprintNative(projectRoot, config) {
     publicJwk: {kty: config.publicJwk.kty, crv: config.publicJwk.crv, x: config.publicJwk.x, y: config.publicJwk.y},
     bundlePublicKey: config.bundlePublicKey,
   }) + '\0');
-  for (const relative of ['native/patches.json', 'native/ios/DirectOta.swift', 'native/ios/DirectOtaProtocol.swift', 'native/android/DirectOta.java']) {
+  for (const relative of ['native/patches.json', 'native/ios/DirectOta.swift', 'native/ios/DirectOtaProtocol.swift', 'native/android/DirectOta.java', 'native/android/DirectOtaVersion.java']) {
     hash.update(relative + '\0');
     hash.update(fs.readFileSync(path.join(packageRoot, relative)));
     hash.update('\0');
@@ -127,22 +128,29 @@ export function fingerprintNative(projectRoot, config) {
   return hash.digest('hex');
 }
 
-/** Emit generated runtime and Capacitor plugin configuration for the host app to import. */
-export function writeNativeConfig(projectRoot, config, {channel = 'production'} = {}) {
+/** Pure effective plugin configuration for doctor checks and native generation. */
+export function nativePluginConfig(config, runtime, channel = 'production') {
   requireConfig(config);
   if (!['internal', 'production'].includes(channel)) throw Error('Invalid Direct OTA channel');
-  const runtime = fingerprintNative(projectRoot, config);
-  const plugin = {
+  if (typeof runtime !== 'string' || !/^[0-9a-f]{64}$/.test(runtime)) throw Error('Invalid Direct OTA runtime');
+  return {
     autoUpdate: 'off', updateUrl: '', statsUrl: '', channelUrl: '',
     allowModifyUrl: false, autoDeletePrevious: false, autoDeleteFailed: false,
     appReadyTimeout: 30000, responseTimeout: 45, resetWhenUpdate: true,
     keepUrlPathAfterReload: true, shakeMenu: false, enableShakeMenu: false,
-    publicKey: config.bundlePublicKey,
+    // Capgo 8.51.25 decryptors require PKCS#1 PEM; project identity stays SPKI.
+    publicKey: createPublicKey(config.bundlePublicKey).export({type: 'pkcs1', format: 'pem'}),
     directOtaAppId: config.appId, directOtaEnvironment: config.environment,
     directOtaArtifactBaseUrl: config.artifactBaseUrl, directOtaBackendContract: config.backendContract,
     directOtaRuntime: runtime, directOtaChannel: channel,
     directOtaKeyId: config.keyId, directOtaKeyX: config.publicJwk.x, directOtaKeyY: config.publicJwk.y,
   };
+}
+
+/** Emit generated runtime and Capacitor plugin configuration for the host app to import. */
+export function writeNativeConfig(projectRoot, config, {channel = 'production'} = {}) {
+  const runtime = fingerprintNative(projectRoot, config);
+  const plugin = nativePluginConfig(config, runtime, channel);
   writeJson(path.join(projectRoot, 'direct-ota.runtime.json'), {protocol: 1, runtime});
   writeJson(path.join(projectRoot, 'direct-ota.capacitor.json'), plugin);
   return {runtime, plugin};

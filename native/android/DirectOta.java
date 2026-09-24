@@ -128,7 +128,7 @@ final class DirectOta {
         String action=m.optString("action");
         require(action.equals("release") ? exactKeys(m,"protocol","appId","environment","platform","channel","runtime","sequence","backendContract","rollout","action","releaseId","version","issuedAt","artifact") : exactKeys(m,"protocol","appId","environment","platform","channel","runtime","sequence","backendContract","rollout","action","releaseId","version","issuedAt"));
         require(integer(m,"protocol",1,1)&&m.optString("appId").equals(appId())&&m.optString("environment").equals(environment())&&m.optString("platform").equals("android")&&m.optString("channel").equals(channel())&&m.optString("runtime").equals(runtime())&&integer(m,"backendContract",backendContract(),backendContract())&&integer(m,"sequence",1,9007199254740991L)&&integer(m,"rollout",0,100));
-        require(m.getString("releaseId").matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")&&m.getString("version").length()<=64&&m.getString("version").matches("[0-9]+\\.[0-9]+\\.[0-9]+([+-][0-9A-Za-z.-]+)?"));
+        require(m.getString("releaseId").matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")&&DirectOtaVersion.valid(m.getString("version")));
         String issued=m.getString("issuedAt");require(issued.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z"));
         java.text.SimpleDateFormat format=new java.text.SimpleDateFormat(issued.contains(".")?"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'":"yyyy-MM-dd'T'HH:mm:ss'Z'",Locale.ROOT);
         format.setLenient(false);format.setTimeZone(TimeZone.getTimeZone("UTC"));java.text.ParsePosition position=new java.text.ParsePosition(0);

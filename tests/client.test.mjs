@@ -6,6 +6,9 @@ import {UpdateCoordinator} from '../dist/client/coordinator.js';
 const state={enabled:true,platform:'ios',runtime:'a'.repeat(64),channel:'production',connection:'cellular',phase:'required',received:0,current:'builtin',installationId:'synthetic-install',manifest:'verified-manifest',total:100};
 const endpoints={checkUrl:'https://example.invalid/check'};
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
+const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
+async function advance(t,ms){t.mock.timers.tick(ms);await flush();}
+function deterministicTime(t){t.mock.timers.enable({apis:['setTimeout','Date'],now:0});t.mock.method(Math,'random',()=>0);}
 
 function setup(initial=state,respond=async()=>new Response('{"manifest":null}')){
   let current={...initial},downloads=[],activations=0,checks=0;
@@ -52,4 +55,60 @@ test('endpoint configuration requires HTTPS and optional telemetry stays absent'
   assert.throws(()=>new UpdateCoordinator(a.native,{checkUrl:'http://example.invalid/check'},a.guard),/OTA_CONFIG/);
   await a.coordinator.start();await a.coordinator.check(true);
   assert.equal(a.checks,1);a.coordinator.stop();
+});
+
+test('transient downloads use two quick retries, then slower bounded recovery',async t=>{
+  deterministicTime(t);
+  const a=setup({...state,connection:'wifi',phase:'paused'});
+  let attempts=0;
+  a.native.otaDownload=async()=>{attempts++;if(attempts<=3)throw Error('OTA_NETWORK');return {...state,connection:'wifi',phase:'ready'};};
+  try{
+    await a.coordinator.start();await flush();assert.equal(attempts,1);
+    await advance(t,1999);assert.equal(attempts,1);
+    await advance(t,1);assert.equal(attempts,2);
+    await advance(t,5000);assert.equal(attempts,3);
+    assert.equal(a.coordinator.getSnapshot().error,'OTA_NETWORK');
+    await advance(t,30000);assert.equal(attempts,4);assert.equal(a.activations,1);
+  }finally{a.coordinator.stop();t.mock.timers.reset();t.mock.restoreAll();}
+});
+
+test('permanent verification failure never retries automatically after network flapping',async t=>{
+  deterministicTime(t);
+  const a=setup({...state,connection:'wifi',phase:'paused'});
+  let attempts=0;a.native.otaDownload=async()=>{attempts++;throw Error('OTA_INVALID');};
+  try{
+    await a.coordinator.start();await flush();assert.equal(attempts,1);
+    a.coordinator.receive({...state,connection:'offline',phase:'paused'});
+    a.coordinator.receive({...state,connection:'wifi',phase:'paused'});
+    await advance(t,600000);assert.equal(attempts,1);assert.equal(a.activations,0);
+  }finally{a.coordinator.stop();t.mock.timers.reset();t.mock.restoreAll();}
+});
+
+test('offline and background states pause work and suppress scheduled retries',async t=>{
+  deterministicTime(t);
+  const a=setup({...state,connection:'offline',phase:'paused'});
+  let attempts=0,pauses=0;
+  a.native.otaDownload=()=>{attempts++;return new Promise(()=>{});};
+  a.native.otaPause=async()=>{pauses++;};
+  try{
+    await a.coordinator.start();await flush();assert.equal(attempts,0);
+    a.coordinator.receive({...state,connection:'wifi',phase:'paused'});
+    await advance(t,0);assert.equal(attempts,1);
+    a.coordinator.setActive(false);await flush();assert.equal(pauses,1);
+    await advance(t,600000);assert.equal(attempts,1);
+  }finally{a.coordinator.stop();t.mock.timers.reset();t.mock.restoreAll();}
+});
+
+test('metadata Retry-After delays the next check',async t=>{
+  deterministicTime(t);
+  let checks=0;
+  const a=setup({...state,manifest:undefined,connection:'wifi'},async()=>{
+    checks++;
+    return checks===1?new Response('busy',{status:503,headers:{'retry-after':'30'}}):new Response('{"manifest":null}');
+  });
+  try{
+    await a.coordinator.start();await a.coordinator.check(true);assert.equal(checks,1);
+    await advance(t,29999);assert.equal(checks,1);
+    await advance(t,1);assert.equal(checks,2);
+  }finally{a.coordinator.stop();t.mock.timers.reset();t.mock.restoreAll();}
 });

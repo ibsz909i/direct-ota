@@ -53,7 +53,8 @@ enum DirectOtaProtocol {
               m.channel == channel, ["production", "internal"].contains(channel), m.runtime == runtime,
               runtime.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
               m.backendContract == backendContract, m.sequence > 0, m.sequence <= 9007199254740991, (0...100).contains(m.rollout),
-              UUID(uuidString: m.releaseId) != nil, m.version.range(of: "^[0-9]+\\.[0-9]+\\.[0-9]+([+-][0-9A-Za-z.-]+)?$", options: .regularExpression) != nil
+              UUID(uuidString: m.releaseId) != nil, m.version.count <= 64,
+              m.version.range(of: "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$", options: .regularExpression) != nil
         else { throw DirectOtaFailure.invalid }
         if m.action == "withdraw" { guard m.artifact == nil else { throw DirectOtaFailure.invalid }; return m }
         guard m.action == "release", let a = m.artifact, a.bytes > 0, a.bytes <= 5242880,

@@ -17,4 +17,15 @@ require(try verify(signed).sequence == 1,"valid signed manifest")
 do {_ = try verify(signed+"x");fatalError("accepted bad signature")} catch {}
 value["runtime"]=String(repeating:"b",count:64)
 do {_ = try verify(sign(value));fatalError("accepted incompatible runtime")} catch {}
+value["runtime"]=runtime
+let corpus = try String(contentsOfFile: CommandLine.arguments[1], encoding: .utf8)
+var checked = 0
+for line in corpus.split(separator: "\n") {
+    let text = String(line), valid = text.hasPrefix("+")
+    value["version"] = String(text.dropFirst())
+    let accepted = (try? verify(sign(value))) != nil
+    require(accepted == valid, "SemVer mismatch: \(text)")
+    checked += 1
+}
+require(checked >= 10, "missing version cases")
 print("Native protocol: signature, compatibility, archive path and range tests passed")

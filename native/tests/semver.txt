@@ -1,0 +1,15 @@
++0.0.0
++1.2.3
++1.2.3-beta.1+build.4
++1.2.3-0
++1.2.3+build.4
+-01.2.3
+-1.02.3
+-1.2.03
+-1.2.3-01
+-1.2.3-beta..1
+-1.2.3+build..1
+-1.2.3+
+-1.2.3_
+-1.2.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+-١.2.3
