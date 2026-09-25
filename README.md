@@ -26,6 +26,7 @@ Your app does **not** need to use Supabase.
 
 - **Supabase provider:** use Storage and Edge Functions for updates, even if your app uses Firebase, Django, Laravel, a custom API, or another backend.
 - **Cloudflare provider:** use a Worker, D1, and R2 for an isolated update service, regardless of your app backend.
+- **Firebase provider:** use a dedicated Firebase project with Hosting, Functions, Firestore, and private Storage, regardless of your app backend.
 - **Node provider:** run the update service next to your existing backend, using SQLite and a persistent artifact directory behind HTTPS.
 - **Custom provider:** implement the [HTTP contract](docs/protocol.md) in your own stack. The app's database and authentication remain separate from update delivery.
 
@@ -44,7 +45,7 @@ Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native bui
 Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases). For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
 
 ```sh
-npm install --save-exact ./direct-ota-0.4.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.5.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
 ```
@@ -52,6 +53,9 @@ npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabas
 The interactive command shows its local changes before applying them. It detects the app ID, web directory, and native platforms, creates a **new private publishing identity**, exports a configured Supabase provider, and prepares native settings. It does **not** deploy a migration, Edge Function, bucket, or update. Review the exported files and follow the [setup guide](docs/quickstart.md) for deployment and native integration. For automation, `--yes` applies only the described local changes.
 
 For Cloudflare, replace the two `setup` commands above with `--provider cloudflare --base-url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev`, then follow the [Cloudflare guide](docs/providers/cloudflare.md). For the Node provider or an existing integration, use the separate `init`, `export-provider`, and `native` commands in the provider guides. Setup never uses your application account or backend service key as the publishing identity.
+Firebase has a matching `setup --provider firebase` flow; it requires a dedicated Blaze project before live deployment. See the [Firebase guide](docs/providers/firebase.md). `deploy --plan` validates a configured Cloudflare or Firebase service locally, and `deploy --apply --dedicated` targets the explicitly selected pre-provisioned resources. It does not enable billing or create resources.
+
+For a custom backend, `create-provider --name my-backend --out ./ota-provider` exports the typed provider admission layer and a fail-closed adapter scaffold. Run `test-provider` against your service; `test-provider --write` exercises publication and withdrawal using an isolated synthetic runtime. See [provider conformance](docs/provider-conformance.md).
 Keep both native plugins as direct app dependencies so Capacitor 8 discovers them. If your Capacitor config uses `includePlugins`, include both on every target platform; `native` and `doctor` check actual plugin discovery.
 
 Continue with the [setup guide](docs/quickstart.md). It covers deploying a provider, integrating the native updater, protecting in-progress actions, and sending your first update. After the initial native release, the everyday flow is:
@@ -85,7 +89,8 @@ The [agent guide](AGENTS.md) includes compatibility checks, integration boundari
 ## Documentation
 
 - [Setup](docs/quickstart.md) · [Native integration](docs/native-integration.md)
-- [Supabase](docs/providers/supabase.md) · [Cloudflare](docs/providers/cloudflare.md) · [Node service](docs/providers/node.md)
+- [Supabase](docs/providers/supabase.md) · [Cloudflare](docs/providers/cloudflare.md) · [Firebase](docs/providers/firebase.md) · [Node service](docs/providers/node.md)
+- [Provider conformance](docs/provider-conformance.md)
 - [Protocol](docs/protocol.md) · [Compatibility](docs/compatibility.md)
 - [Publishing](docs/publishing.md) · [Operations](docs/operations.md)
 - [Case study: a loyalty app](docs/case-study.md) · [Verification](docs/verification.md)

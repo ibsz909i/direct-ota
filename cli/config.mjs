@@ -53,7 +53,7 @@ export async function readConfig(root) { return validateConfig(JSON.parse(await 
 export async function writeJson(path, value, mode = 0o644) { await writeFile(path, JSON.stringify(value, null, 2) + '\n', {flag: 'wx', mode}); }
 export async function initProject(root, {appId, baseUrl, provider = 'node', webDir = 'dist',
   runtimeInputs = ['capacitor.config.ts', 'package-lock.json', 'ios', 'android']}) {
-  if (!['node', 'supabase', 'cloudflare'].includes(provider)) throw new Error('Provider must be node, supabase, or cloudflare');
+  if (!['node', 'supabase', 'cloudflare', 'firebase'].includes(provider)) throw new Error('Provider must be node, supabase, cloudflare, or firebase');
   httpsUrl(baseUrl + "/");
   if (baseUrl.endsWith('/') || new URL(baseUrl).origin !== baseUrl) throw new Error('Use an exact HTTPS origin without a path or trailing slash');
   const signing = generateKeyPairSync('ec', {namedCurve: 'prime256v1'});

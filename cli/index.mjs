@@ -8,17 +8,22 @@ import {selector, prepare, upload, promote, instruction} from './releases.mjs';
 
 const help = `Direct OTA — signed updates on your infrastructure
 
-direct-ota init --app-id app.example.demo --base-url https://updates.example.com [--provider node|supabase|cloudflare]
-direct-ota setup --provider supabase|cloudflare --base-url https://YOUR_HOST [--channel internal] [--plan|--yes]
-direct-ota export-provider --provider node|supabase|cloudflare --out ./ota-service
+direct-ota init --app-id app.example.demo --base-url https://updates.example.com [--provider node|supabase|cloudflare|firebase]
+direct-ota setup --provider supabase|cloudflare|firebase --base-url https://YOUR_HOST [--channel internal] [--plan|--yes]
+direct-ota deploy --provider cloudflare --account-id ID [--plan|--apply --dedicated]
+direct-ota deploy --provider firebase --target PROJECT_ID --bucket BUCKET [--plan|--apply --dedicated]
+direct-ota export-provider --provider node|supabase|cloudflare|firebase --out ./ota-service
+direct-ota create-provider --name my-backend --out ./ota-provider
 direct-ota native --channel internal|production
 direct-ota patch
 direct-ota doctor [--remote --platform ios|android] [--channel internal]
+direct-ota test-provider [--write]  (write mode uses a synthetic runtime; use an isolated service)
 direct-ota publish --platform ios|android --version 1.0.1 [--out DIR]
 direct-ota prepare --platform ios|android --version 1.0.1 [--channel internal] [--rollout 100] [--out DIR]
 direct-ota upload --release DIR
 direct-ota promote --release DIR
 direct-ota status --platform ios|android [--channel internal]
+direct-ota health --release-id UUID  (signed, opt-in aggregate reports)
 direct-ota rollout --from DIR --platform ios|android --channel production --rollout 1|5|25|100
 direct-ota rollback --from DIR --platform ios|android --channel production
 direct-ota withdraw --platform ios|android --channel production
@@ -31,15 +36,26 @@ See docs/quickstart.md and AGENTS.md for setup and release rules.
 `;
 try {
   const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries([
-    'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','rollout'
+    'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','rollout','release-id','name','account-id','target','bucket'
   ].map(name => [name, {type: 'string'}]).concat([
-    ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}], ['remote', {type:'boolean'}]
+    ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}], ['remote', {type:'boolean'}], ['write', {type:'boolean'}], ['apply', {type:'boolean'}], ['dedicated', {type:'boolean'}]
   ]))});
   const action = positionals[0];
   if (!action || values.help) { console.log(help); process.exit(0); }
   if (positionals.length !== 1) throw new Error('Unexpected positional arguments');
   const root = resolve(values.project || '.');
-  if (action === 'setup') {
+  if (action === 'create-provider') {
+    if (!values.name || !values.out) throw new Error('Specify --name and --out');
+    const {createProviderScaffold} = await import('./scaffold.mjs');
+    await createProviderScaffold(resolve(root, values.out), values.name);
+    console.log('Provider scaffold created. Implement the adapter and pass conformance before deployment.');
+  } else if (action === 'deploy') {
+    if (values.plan && values.apply) throw new Error('Choose --plan or --apply');
+    const {guidedDeploy} = await import('./deploy.mjs');
+    const result = await guidedDeploy(root, values);
+    console.log(result.plan);
+    if (result.applied) console.log('Provider deployment commands completed. Run test-provider, doctor --remote, and a device update before production use.');
+  } else if (action === 'setup') {
     const {guidedSetup} = await import('./setup.mjs');
     const result = await guidedSetup(root, {
       provider: values.provider, appId: values['app-id'], baseUrl: values['base-url'],
@@ -52,19 +68,22 @@ try {
       ...(values.provider === 'cloudflare' ? [
         '1. Review ota-service/migrations and the intended Cloudflare account.',
         '2. Create an isolated D1 database and R2 bucket; set public trust and private upload secret; deploy the Worker.',
+      ] : values.provider === 'firebase' ? [
+        '1. Review the dedicated Firebase project, Firestore and Storage rules, and Hosting rewrites.',
+        '2. Configure a private OTA bucket and Function secrets, then deploy the isolated provider.',
       ] : [
         '1. Review ota-service/migrations, ota-service/setup.sql, and the intended linked Supabase project.',
         '2. Apply the reviewed migration and setup SQL; set Edge trust from .direct-ota/supabase-trust.env; deploy both functions.',
       ]),
       '3. Merge direct-ota.capacitor.json into CapacitorUpdater settings, then run native again and npx cap sync.',
       '4. Wire the updater coordinator and readiness signal, build a native app, run npx direct-ota doctor, and test an internal OTA on a device.',
-      `See docs/quickstart.md and docs/providers/${values.provider === 'cloudflare' ? 'cloudflare' : 'supabase'}.md for deployment steps.`,
+      `See docs/quickstart.md and docs/providers/${values.provider}.md for deployment steps.`,
     ].join('\n'));
   } else if (action === 'init') {
     await initProject(root, {appId: values['app-id'], baseUrl: values['base-url'], provider: values.provider});
     console.log('Created public configuration and a private local publishing identity. Back up .direct-ota/identity.json securely; never commit it.');
   } else if (action === 'export-provider') {
-    if (!['node','supabase','cloudflare'].includes(values.provider) || !values.out) throw new Error('Specify --provider node|supabase|cloudflare and --out DIR');
+    if (!['node','supabase','cloudflare','firebase'].includes(values.provider) || !values.out) throw new Error('Specify --provider node|supabase|cloudflare|firebase and --out DIR');
     const dest = resolve(root, values.out);
     await exportProvider(values.provider, dest);
     console.log('Provider files exported. Follow its README to deploy with your public trust configuration.');
@@ -92,6 +111,15 @@ try {
     } else {
       const identity = await readIdentity(root, config, values.identity);
       if (action === 'status') console.log(JSON.stringify(await command(config, identity, 'status', await selector(root, values)), null, 2));
+      else if (action === 'health') {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(values['release-id'] || ''))
+          throw new Error('Specify --release-id UUID');
+        console.log(JSON.stringify(await command(config, identity, 'health', {releaseId: values['release-id']}), null, 2));
+      }
+      else if (action === 'test-provider') {
+        const {testProvider} = await import('./conformance.mjs');
+        console.log(JSON.stringify(await testProvider(config, identity, {write: values.write}), null, 2));
+      }
       else if (action === 'publish') {
         const {publish} = await import('./publish.mjs');
         console.log(JSON.stringify(await publish(root, config, identity, values), null, 2));

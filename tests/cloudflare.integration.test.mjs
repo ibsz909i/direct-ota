@@ -58,6 +58,7 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
   await exportProvider('cloudflare', service);
   const workerConfig = JSON.parse((await readFile(join(service,'wrangler.jsonc'),'utf8')).replace(/^\s*\/\/.*$/gm,''));
   workerConfig.d1_databases[0].database_id = '00000000-0000-4000-8000-000000000001';
+  workerConfig.vars.OTA_EVENTS_ENABLED = 'true';
   await writeFile(join(service,'wrangler.jsonc'), JSON.stringify(workerConfig));
   await writeFile(join(service,'.dev.vars'), `OTA_TRUST_JSON='${JSON.stringify(config)}'\nOTA_UPLOAD_SECRET='${randomBytes(32).toString('base64')}'\n`, {mode:0o600});
   await mkdir(persistence);
@@ -180,6 +181,16 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
     const remote = await cli(['doctor','--remote','--platform','ios']);
     assert.equal(remote.sequence,1);
     assert(remote.checks.includes('artifact SHA-256 verified'));
+    const conformance = await cli(['test-provider','--write']);
+    assert(conformance.checks.includes('synthetic channel withdrawn'));
+    const event = await fetch(origin+'/events',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({releaseId:conformance.releaseId,event:'download_failed'})});
+    assert.equal(event.status,204);
+    const health = await cli(['health','--release-id',conformance.releaseId]);
+    assert.equal(health.counts.download_failed,1);
+    const privateEvent = await fetch(origin+'/events',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({releaseId:conformance.releaseId,event:'ready',installationId:'private'})});
+    assert.equal(privateEvent.status,400);
     const iat = Math.floor(Date.now()/1000);
     const signed = signJws({protocol:1,appId:config.appId,aud:'direct-ota-publish',action:'status',iat,
       exp:iat+60,nonce:'11111111-1111-4111-8111-111111111111',body:{platform:'ios',channel:'internal',runtime:manifest.runtime}},

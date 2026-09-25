@@ -68,18 +68,20 @@ async function assertAvailable(root, output) {
 
 function planText({host, baseUrl, out, channel, provider}) {
   const cloudflare = provider === 'cloudflare';
+  const firebase = provider === 'firebase';
+  const label = cloudflare ? 'Cloudflare Worker' : firebase ? 'Firebase Hosting' : 'Supabase';
   return [
     'Direct OTA setup plan',
     `App: ${host.appId} (Capacitor 8; ${host.platforms.join(', ')})`,
     `Web directory: ${host.webDir}`,
-    `${cloudflare ? 'Cloudflare Worker' : 'Supabase'} origin: ${baseUrl}`,
+    `${label} origin: ${baseUrl}`,
     `Local provider output: ${out}`,
     `Native channel: ${channel}`,
-    `Local changes: create a private signing identity, public config, ignored ${cloudflare ? 'Worker secret files' : 'trust env file'},`,
+    `Local changes: create a private signing identity, public config, ignored ${cloudflare || firebase ? 'provider secret files' : 'trust env file'},`,
     'append .direct-ota/ to .gitignore,',
-    `export a ${cloudflare ? 'Cloudflare' : 'configured Supabase'} provider, patch the pinned updater, and generate native settings.`,
-    `No migration, ${cloudflare ? 'Worker' : 'Edge Function'}, bucket, or release is deployed by this command.`,
-    `You must review the exported ${cloudflare ? 'D1 migration' : 'SQL'}, deploy to the intended ${cloudflare ? 'Cloudflare account' : 'Supabase project'}, merge native`,
+    `export a ${label} provider, patch the pinned updater, and generate native settings.`,
+    `No migration, ${cloudflare ? 'Worker' : firebase ? 'Cloud Function' : 'Edge Function'}, bucket, or release is deployed by this command.`,
+    `You must review the exported ${cloudflare ? 'D1 migration' : firebase ? 'Firestore and Storage rules' : 'SQL'}, deploy to the intended ${cloudflare ? 'Cloudflare account' : firebase ? 'Firebase project' : 'Supabase project'}, merge native`,
     'settings, sync/build the app, and verify an update on a device before publishing.',
   ].join('\n');
 }
@@ -90,7 +92,7 @@ async function ask(question) {
 }
 
 export async function guidedSetup(root, options = {}) {
-  if (options.provider && !['supabase', 'cloudflare'].includes(options.provider)) throw new Error('Guided setup supports --provider supabase or cloudflare only');
+  if (options.provider && !['supabase', 'cloudflare', 'firebase'].includes(options.provider)) throw new Error('Guided setup supports --provider supabase, cloudflare, or firebase only');
   const provider = options.provider || 'supabase';
   const host = inspectHost(root);
   verifyNativePatch(root);
@@ -101,7 +103,7 @@ export async function guidedSetup(root, options = {}) {
   if (dirname(output) !== root) throw new Error('Provider output must be a new directory directly inside the app project');
   await assertAvailable(root, output);
   let baseUrl = options.baseUrl;
-  if (!baseUrl && process.stdin.isTTY) baseUrl = await ask(`${provider === 'cloudflare' ? 'Cloudflare Worker' : 'Supabase project'} HTTPS origin: `);
+  if (!baseUrl && process.stdin.isTTY) baseUrl = await ask(`${provider === 'cloudflare' ? 'Cloudflare Worker' : provider === 'firebase' ? 'dedicated Firebase Hosting' : 'Supabase project'} HTTPS origin: `);
   if (!baseUrl) throw new Error('Specify --base-url with the provider HTTPS origin');
   const url = httpsUrl(baseUrl + '/');
   if (baseUrl.endsWith('/') || url.pathname !== '/' || url.origin !== baseUrl) throw new Error('Use the exact provider HTTPS origin without a path or trailing slash');
@@ -120,9 +122,9 @@ export async function guidedSetup(root, options = {}) {
     const env = join(root, '.direct-ota', 'supabase-trust.env');
     await writeFile(env, `OTA_TRUST_JSON=${JSON.stringify(config)}\n`, {flag: 'wx', mode: 0o600});
   } else {
-    const env = join(root, '.direct-ota', 'cloudflare-trust.json');
+    const env = join(root, '.direct-ota', `${provider}-trust.json`);
     await writeFile(env, JSON.stringify(config) + '\n', {flag: 'wx', mode: 0o600});
-    await writeFile(join(root, '.direct-ota', 'cloudflare-upload-secret'),
+    await writeFile(join(root, '.direct-ota', `${provider}-upload-secret`),
       randomBytes(32).toString('base64'), {flag: 'wx', mode: 0o600});
   }
   installNative(root, config);

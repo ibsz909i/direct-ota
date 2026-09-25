@@ -9,11 +9,15 @@ dist/
 providers/cloudflare/.dev.vars*
 providers/cloudflare/.wrangler/
 providers/cloudflare/worker-configuration.d.ts
+providers/firebase/functions/lib/
 *.pem
 *.key
 *.p12
 *.pfx
 .DS_Store
 coverage/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
 examples/**/ios/
 examples/**/android/

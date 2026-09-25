@@ -1,0 +1,8 @@
+.env*
+!.env.example
+.secret.local
+.firebase/
+functions/lib/
+functions/node_modules/
+functions/.env*
+functions/.secret.local

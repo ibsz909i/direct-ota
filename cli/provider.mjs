@@ -1,24 +1,38 @@
 import {mkdir, cp, readdir, readFile, writeFile} from 'node:fs/promises';
-import {resolve, join, dirname} from 'node:path';
+import {resolve, join, dirname, relative} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Export a provider into a new directory. Existing files are never replaced. */
 export async function exportProvider(provider, dest) {
-  if (!['node', 'supabase', 'cloudflare'].includes(provider)) throw new Error('Provider must be node, supabase, or cloudflare');
+  if (!['node', 'supabase', 'cloudflare', 'firebase'].includes(provider)) throw new Error('Provider must be node, supabase, cloudflare, or firebase');
   await mkdir(dest, {recursive: false});
   const source = join(packageRoot, 'providers', provider);
-  const developmentProtocol = join(source, provider === 'cloudflare' ? 'src/protocol.ts' : 'functions/_shared/protocol.ts');
+  const developmentProtocol = join(source, provider === 'cloudflare' ? 'src/protocol.ts' :
+    provider === 'firebase' ? 'functions/src/protocol.ts' : 'functions/_shared/protocol.ts');
+  const developmentTelemetry = provider === 'cloudflare' ? join(source, 'src/telemetry.ts') :
+    provider === 'firebase' ? join(source, 'functions/src/telemetry.ts') : null;
   for (const name of await readdir(source)) {
     if (provider === 'node' && (name === '.gitignore' || name === 'gitignore.template')) continue;
     if (provider === 'cloudflare' && ['.dev.vars', '.wrangler', 'node_modules', 'worker-configuration.d.ts', 'gitignore.template', '.npmignore'].includes(name)) continue;
+    if (provider === 'firebase' && ['.firebase', 'gitignore.template', '.npmignore'].includes(name)) continue;
     await cp(join(source, name), join(dest, name), {recursive: true, errorOnExist: true, force: false,
-      filter: item => item !== developmentProtocol});
+      filter: item => item !== developmentProtocol && item !== developmentTelemetry &&
+        !(provider === 'firebase' && (/^functions\/(node_modules|lib)(\/|$)/.test(relative(source, item).replaceAll('\\', '/')) ||
+          item === join(source, 'functions/src/provider.ts')))});
   }
-  if (provider === 'node' || provider === 'cloudflare') {
+  if (provider === 'node' || provider === 'cloudflare' || provider === 'firebase') {
     await cp(join(source, 'gitignore.template'), join(dest, '.gitignore'), {errorOnExist: true, force: false});
-    if (provider === 'cloudflare') await cp(join(packageRoot, 'src/protocol.ts'), join(dest, 'src/protocol.ts'), {errorOnExist: true, force: false});
+    if (provider === 'cloudflare') {
+      await cp(join(packageRoot, 'src/protocol.ts'), join(dest, 'src/protocol.ts'), {errorOnExist: true, force: false});
+      await cp(join(packageRoot, 'src/telemetry.ts'), join(dest, 'src/telemetry.ts'), {errorOnExist: true, force: false});
+    }
+    if (provider === 'firebase') {
+      await cp(join(packageRoot, 'src/protocol.ts'), join(dest, 'functions/src/protocol.ts'), {errorOnExist: true, force: false});
+      await cp(join(packageRoot, 'src/provider.ts'), join(dest, 'functions/src/provider.ts'), {errorOnExist: true, force: false});
+      await cp(join(packageRoot, 'src/telemetry.ts'), join(dest, 'functions/src/telemetry.ts'), {errorOnExist: true, force: false});
+    }
   } else if (provider === 'supabase') {
     await mkdir(join(dest, 'functions/_shared'), {recursive: true});
     await cp(join(packageRoot, 'src/protocol.ts'), join(dest, 'functions/_shared/protocol.ts'), {errorOnExist: true, force: false});

@@ -92,10 +92,25 @@ test('guided setup exports a standalone Cloudflare Worker and private secrets', 
   assert.doesNotMatch(await readFile(join(root, 'ota-service/wrangler.jsonc'), 'utf8'), /BEGIN PRIVATE KEY/);
 });
 
+test('guided setup exports a standalone Firebase provider and private secrets', async t => {
+  const root = await host(t);
+  const baseUrl = 'https://synthetic-ota.web.app';
+  const result = await guidedSetup(root, {provider:'firebase', baseUrl, yes:true});
+  assert.equal(result.applied, true);
+  const config = await readConfig(root);
+  await readIdentity(root, config);
+  assert.equal(config.artifactBaseUrl, baseUrl + '/artifacts');
+  assert.deepEqual(await readFile(join(root, 'ota-service/functions/src/provider.ts'), 'utf8'),
+    await readFile(join(source, 'src/provider.ts'), 'utf8'));
+  for (const file of ['firebase-trust.json', 'firebase-upload-secret'])
+    assert.equal((await lstat(join(root, '.direct-ota', file))).mode & 0o777, 0o600);
+  assert.match(await readFile(join(root, 'ota-service/firestore.rules'), 'utf8'), /allow read, write: if false/);
+});
+
 test('setup rejects mismatched app identity, wrong provider, and unsafe output before writing', async t => {
   const root = await host(t);
   await assert.rejects(guidedSetup(root, {provider:'supabase',appId:'app.other',baseUrl:origin,yes:true}), /differs/);
   await assert.rejects(guidedSetup(root, {provider:'supabase',baseUrl:origin,out:'../outside',yes:true}), /inside the app/);
-  await assert.rejects(guidedSetup(root, {provider:'firebase',baseUrl:origin,yes:true}), /supports --provider supabase/);
+  await assert.rejects(guidedSetup(root, {provider:'unknown',baseUrl:origin,yes:true}), /supports --provider/);
   await assert.rejects(access(join(root, '.direct-ota')));
 });

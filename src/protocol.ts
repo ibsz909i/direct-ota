@@ -68,7 +68,7 @@ export interface OtaPublishCommand {
   protocol: 1;
   appId: string;
   aud: "direct-ota-publish";
-  action: "reserve" | "promote" | "status";
+  action: "reserve" | "promote" | "status" | "health";
   iat: number;
   exp: number;
   nonce: string;
@@ -325,7 +325,7 @@ export async function verifyPublishCommand(
   if (
     v.protocol !== 1 || v.appId !== trust.appId ||
     v.aud !== "direct-ota-publish" ||
-    !["reserve", "promote", "status"].includes(v.action as string) ||
+    !["reserve", "promote", "status", "health"].includes(v.action as string) ||
     !integer(v.iat, seconds - 60, seconds + 5) ||
     !integer(v.exp, seconds + 1, seconds + 65) ||
     (v.exp as number) <= (v.iat as number) ||

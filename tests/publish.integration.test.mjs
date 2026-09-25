@@ -98,4 +98,7 @@ test('CLI publishes, downloads, rolls out, rolls back and withdraws through HTTP
  const status=JSON.parse(await cli(['status','--platform','ios','--channel','production']));
  assert.equal(status.sequence,4);
  assert.equal(JSON.parse(Buffer.from(status.manifest.split('.')[1],'base64url')).action,'withdraw');
+ const conformance=JSON.parse(await cli(['test-provider','--write']));
+ assert.equal(conformance.mode,'isolated-write');
+ assert(conformance.checks.includes('synthetic channel withdrawn'));
 });

@@ -1,6 +1,6 @@
 ---
 name: direct-ota
-description: Assess, integrate, publish, inspect, withdraw, or roll back signed Direct OTA frontend updates for Capacitor apps using a self-hosted Node service, Supabase, Cloudflare, or a compatible provider.
+description: Assess, integrate, publish, inspect, withdraw, or roll back signed Direct OTA frontend updates for Capacitor apps using Node, Supabase, Cloudflare, Firebase, or a compatible provider.
 ---
 
 # Direct OTA
@@ -11,11 +11,13 @@ Read AGENTS.md and docs/compatibility.md first. This tool helps deliver compatib
 
 Identify the app runtime and backend separately. Capacitor 8 is supported by the included adapter. React/Vue/Svelte/Angular inside Capacitor are supported frontend choices; other native runtimes need their own adapter and evidence. Do not answer “yes” to universal compatibility without inspecting the app.
 
-The app can keep any backend. Offer the Node provider, the Cloudflare Worker/D1/R2 provider, a provider following docs/protocol.md, or Supabase dedicated to updates. Explain that free hosting tiers have quotas.
+The app can keep any backend. Offer the Node, Cloudflare Worker/D1/R2, Firebase, or Supabase provider, or a custom provider built with `create-provider`. Explain that hosting tiers have quotas and Firebase Functions/Storage require Blaze.
 
 Follow docs/quickstart.md and the selected provider guide. For a new Capacitor 8 + npm + Supabase host, run `direct-ota setup --provider supabase --base-url <project HTTPS origin> --plan` before its interactive local setup. The command does not deploy Supabase resources or merge host application code. Review the target project and exported SQL before remote deployment. Generate fresh keys, preserve unrelated work, keep all private material out of Git, and complete the initial native installation. Verify each platform before assigning its production channel.
 
 For Cloudflare, use `direct-ota setup --provider cloudflare --base-url <Worker HTTPS origin> --plan`, then read docs/providers/cloudflare.md. Keep D1 and R2 resources separate from unrelated projects. Do not claim a large fleet will fit the Workers Free daily request limit. If R2 is disabled or live credentials are unavailable, complete local Worker tests and report the live deployment gap without claiming deployment succeeded.
+
+For Firebase, use a dedicated OTA project and `setup --provider firebase --base-url https://PROJECT.web.app --plan`. Read docs/providers/firebase.md. Run local Firestore/Storage emulator conformance before deployment. `deploy --plan` validates the selected update service; `--apply --dedicated` mutates the exact pre-provisioned provider and must never target an existing application project. For any provider, use `test-provider` read-only and `test-provider --write` only against an isolated deployment. Health reports are optional, untrusted, and supported by Cloudflare and Firebase.
 
 ## Publish
 

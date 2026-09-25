@@ -13,6 +13,8 @@ npx direct-ota setup --provider cloudflare --base-url https://YOUR_WORKER.YOUR_S
 
 Guided setup creates a fresh private identity, public `direct-ota.config.json`, exported `ota-service/`, ignored `.direct-ota/cloudflare-trust.json` and `.direct-ota/cloudflare-upload-secret`, and native settings. It does not create or change Cloudflare resources. For an existing Direct OTA app, preserve its installed identity and use the manual `init`/`export-provider` commands only when appropriate:
 
+After creating and configuring the **dedicated** Worker, D1 database, and R2 bucket, `direct-ota deploy --provider cloudflare --account-id YOUR_ACCOUNT_ID --plan` validates local trust, secret permissions, names, and resource bindings. Repeat with `--apply --dedicated` to run a dry build, remote D1 migrations, two Worker secret uploads, and a strict Worker deployment against that explicit account. It creates no resource or subscription. An already deployed provider needs the new `0002_telemetry.sql` migration before enabling events.
+
 ```sh
 npx direct-ota init --app-id app.example.demo --base-url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev --provider cloudflare
 npx direct-ota export-provider --provider cloudflare --out ./ota-service
@@ -59,3 +61,5 @@ Cloudflare's Workers Free plan currently allows 100,000 requests per day; a flee
 R2 objects, D1 releases, and channel sequences must be backed up and restored consistently. The template caps release records at 10,000 and channels at 256; it never deletes rollback artifacts automatically. An operator must review retention and capacity before those limits are approached. Disable new publishing and update offers by setting `OTA_PUBLISHER_ENABLED` to `false` and deploying the configuration. Already downloaded signed instructions remain trusted on devices; key compromise requires the native recovery in [SECURITY.md](../../SECURITY.md).
 
 Local automated integration uses the actual Worker runtime, D1 migration, R2 binding, CLI, and HTTPS proxy. It covers signed publishing, tampered uploads, immutable writes, byte ranges, rollback, withdrawal, replay, and concurrent promotion. It does not prove the deployed Cloudflare account's quotas or a 100,000 device rollout. Test the actual deployment with an internal release and physical devices before broad promotion.
+
+Optional aggregate health reports are disabled by default. Set `OTA_EVENTS_ENABLED` to `true` in the dedicated Worker's vars and redeploy, then give the app coordinator this Worker's `/events` URL. Events contain only release ID and a fixed event name. Successful events are sampled at 1%; failures are unsampled and all reports are untrusted. The endpoint rejects unexpected fields, limits body size, and admits at most 120 events/minute across the D1 database. Read totals with signed `direct-ota health --release-id UUID`. Counts cannot authorize rollout or rollback and are not exact installation rates.

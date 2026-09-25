@@ -6,7 +6,7 @@
   "workers_dev": true,
   "preview_urls": false,
   "observability": { "enabled": false },
-  "vars": { "OTA_PUBLISHER_ENABLED": "true" },
+  "vars": { "OTA_PUBLISHER_ENABLED": "true", "OTA_EVENTS_ENABLED": "false" },
   "secrets": { "required": ["OTA_TRUST_JSON", "OTA_UPLOAD_SECRET"] },
   "d1_databases": [
     {

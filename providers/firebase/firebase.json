@@ -1,0 +1,20 @@
+{
+  "functions": {"source": "functions", "codebase": "direct-ota", "runtime": "nodejs22"},
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {"source": "/check", "function": {"functionId": "directOta", "region": "us-central1"}},
+      {"source": "/publish", "function": {"functionId": "directOta", "region": "us-central1"}},
+      {"source": "/upload", "function": {"functionId": "directOta", "region": "us-central1"}},
+      {"source": "/events", "function": {"functionId": "directOta", "region": "us-central1"}},
+      {"source": "/artifacts/**", "function": {"functionId": "directOta", "region": "us-central1"}}
+    ]
+  },
+  "firestore": {"rules": "firestore.rules"},
+  "storage": {"rules": "storage.rules"},
+  "emulators": {
+    "firestore": {"host": "127.0.0.1", "port": 18080},
+    "storage": {"host": "127.0.0.1", "port": 19199}
+  }
+}

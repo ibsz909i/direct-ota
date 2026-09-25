@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- Add a Firebase provider with private Storage artifacts, atomic Firestore release state, deny-all client rules, and local emulator conformance.
+- Add a reusable provider admission SDK and custom provider scaffold.
+- Add read-only and isolated write provider conformance commands for signed publishing, immutable artifacts, ranges, rollback, and withdrawal.
+- Add local deployment preflight and explicitly scoped Cloudflare/Firebase deployment commands for pre-provisioned update-only resources.
+- Add optional bounded aggregate release events for Cloudflare and Firebase. Device reports cannot authorize publication or rollback.
+
+
 ## 0.4.0
 
 - Add an isolated Cloudflare Worker, D1, and R2 provider with signed publishing, immutable uploads, byte-range downloads, bounded metadata caching, rollback, and withdrawal.

@@ -1,6 +1,6 @@
 {
   "name": "direct-ota",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Signed OTA updates for Capacitor apps, on infrastructure you control.",
   "type": "module",
   "license": "MPL-2.0",
@@ -14,6 +14,8 @@
   "exports": {
     ".": "./dist/client/index.js",
     "./protocol": "./dist/protocol.js",
+    "./provider": "./dist/provider.js",
+    "./telemetry": "./dist/telemetry.js",
     "./server": "./providers/node/server.mjs"
   },
   "files": [
@@ -22,6 +24,8 @@
     "native",
     "providers",
     "src/protocol.ts",
+    "src/provider.ts",
+    "src/telemetry.ts",
     "docs",
     "skills",
     "README.md",

@@ -6,6 +6,8 @@ Direct OTA ships compatible web-bundle updates to installed Capacitor apps. Its 
 
 Inspect the repository before answering. Identify its mobile runtime, Capacitor version, native plugins, web output directory, deployment infrastructure, and existing update mechanism.
 
+For a custom backend, use `direct-ota create-provider --name ... --out ...`, implement the adapter's atomic persistence and immutable storage rules, then run `test-provider` read-only and `test-provider --write` against an isolated deployment. Never treat a scaffold or a local emulator pass as live/device proof. Cloudflare and Firebase have `deploy --plan` and explicit `--apply --dedicated` paths for pre-provisioned update-only resources; confirm the account/project, billing, and existing service before applying.
+
 - Capacitor 8: use the included integration. The frontend can be React, Vue, Angular, Svelte, or plain web code.
 - Another app backend: the backend does not need to change. Offer the Node service, Cloudflare Worker/D1/R2, a provider implementing docs/protocol.md, or a separate Supabase project used only for OTA.
 - React Native, Expo, Flutter, pure Swift/Kotlin, or another runtime: explain that the included native integration is not compatible unchanged. Assess an appropriate runtime updater or a new adapter. Never say an adapter exists just because one could be written.

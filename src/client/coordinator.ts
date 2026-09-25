@@ -164,7 +164,7 @@ export class UpdateCoordinator {
     this.events.add(key);if(this.events.size>100)this.events.delete(this.events.values().next().value!);
     // Success sampling, errors retained; metrics are best effort and never delay transactions.
     if(['available','download_started','download_complete','activation_started','ready'].includes(event)&&Math.random()>0.01)return;
-    void this.request(this.config.eventsUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({releaseId:state.releaseId,installationId:state.installationId,event}),signal:AbortSignal.timeout(5000),cache:'no-store',redirect:'error'}).catch(()=>{});
+    void this.request(this.config.eventsUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({releaseId:state.releaseId,event}),signal:AbortSignal.timeout(5000),cache:'no-store',redirect:'error'}).catch(()=>{});
   }
   stop(){this.stopped=true;clearTimeout(this.timer);clearTimeout(this.checkTimer);this.unsubscribe();this.guard.unlock();this.listeners.clear();void this.native.otaPause().catch(()=>{});}
 }

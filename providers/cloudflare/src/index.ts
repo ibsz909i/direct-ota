@@ -5,6 +5,7 @@ import {cors, fail, json, makeUploadToken, problem, readBytes, readJson, sha256,
   verifyUploadToken, type UploadClaim} from './security.ts';
 import {consumeCommand, head, promote, promotedPath, releaseById, reserve} from './state.ts';
 import {catalogManifest, invalidateCatalog} from './catalog.ts';
+import {OTA_SUCCESS_SAMPLE_RATE, validateEvent} from './telemetry.ts';
 
 function configuration(env: Env): OtaTrust {
   let trust: OtaTrust;
@@ -40,6 +41,16 @@ async function publishing(request: Request, env: Env, trust: OtaTrust): Promise<
   try { exactKeys(envelope, ['command']); command = await verifyPublishCommand(envelope.command as string, trust); }
   catch { fail(401, 'INVALID_SIGNATURE'); }
   await consumeCommand(env.DB, command.nonce, command.exp);
+  if (command.action === 'health') {
+    let releaseId: string;
+    try { exactKeys(command.body, ['releaseId']); releaseId = command.body.releaseId as string;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(releaseId)) throw Error();
+    } catch { fail(400, 'INVALID_REQUEST'); }
+    const rows = await env.DB.prepare('SELECT event, count FROM event_totals WHERE release_id = ? LIMIT 16')
+      .bind(releaseId).all<{event: string; count: number}>();
+    return json({releaseId, counts: Object.fromEntries(rows.results.map(row => [row.event, row.count])),
+      sampledSuccessRate: OTA_SUCCESS_SAMPLE_RATE});
+  }
   if (command.action === 'status') {
     let selected;
     try { selected = validateSelector(command.body); }
@@ -93,6 +104,25 @@ async function upload(request: Request, env: Env, url: URL): Promise<Response> {
   return json({uploaded: true}, 201);
 }
 
+async function event(request: Request, env: Env): Promise<Response> {
+  if (String(env.OTA_EVENTS_ENABLED) !== 'true') fail(404, 'NOT_FOUND');
+  let report;
+  try { report = validateEvent(await readJson(request, 256)); }
+  catch { fail(400, 'INVALID_EVENT'); }
+  const minute = Math.floor(Date.now() / 60000);
+  const admitted = await env.DB.prepare(`UPDATE event_window SET minute = ?,
+    events = CASE WHEN minute = ? THEN events + 1 ELSE 1 END
+    WHERE id = 1 AND (minute != ? OR events < 120)`)
+    .bind(minute, minute, minute).run();
+  if (admitted.meta.changes !== 1) fail(429, 'RATE_LIMITED');
+  const release = await releaseById(env.DB, report.releaseId);
+  if (!release?.promoted) fail(404, 'NOT_FOUND');
+  await env.DB.prepare(`INSERT INTO event_totals(release_id, event, count) VALUES(?, ?, 1)
+    ON CONFLICT(release_id, event) DO UPDATE SET count = count + 1`)
+    .bind(report.releaseId, report.event).run();
+  return new Response(null, {status: 204, headers: cors});
+}
+
 function range(value: string, size: number): {offset: number; length: number} | null {
   const match = /^bytes=(\d*)-(\d*)$/.exec(value);
   if (!match || (!match[1] && !match[2])) return null;
@@ -143,6 +173,7 @@ export default {
       if (request.method === 'OPTIONS') return new Response(null, {status: 204, headers: cors});
       if (request.method === 'POST' && !url.search && url.pathname === '/check') return await check(request, env, trust);
       if (request.method === 'POST' && !url.search && url.pathname === '/publish') return await publishing(request, env, trust);
+      if (request.method === 'POST' && !url.search && url.pathname === '/events') return await event(request, env);
       if (request.method === 'PUT' && url.pathname === '/upload') return await upload(request, env, url);
       if (['GET', 'HEAD'].includes(request.method) && url.pathname.startsWith('/artifacts/')) return await artifact(request, env, url);
       fail(404, 'NOT_FOUND');
