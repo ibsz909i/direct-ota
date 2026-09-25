@@ -8,6 +8,8 @@ Inspect the repository before answering. Identify its mobile runtime, Capacitor 
 
 For a custom backend, use `direct-ota create-provider --name ... --out ...`, implement the adapter's atomic persistence and immutable storage rules, then run `test-provider` read-only and `test-provider --write` against an isolated deployment. Never treat a scaffold or a local emulator pass as live/device proof. Cloudflare and Firebase have `deploy --plan` and explicit `--apply --dedicated` paths for pre-provisioned update-only resources; confirm the account/project, billing, and existing service before applying.
 
+For a new dedicated Cloudflare or Firebase setup, use `setup --finish --provider ... --plan` after preparing local files and provisioning the isolated resources. Apply only with the same exact target plus `--apply --dedicated`. The command merges a simple JSON/TypeScript native config, syncs and checks native inputs, deploys, runs read-only provider conformance, and checks metadata. It does not build or install a phone app or publish an OTA. A JavaScript/dynamic config needs a reviewed manual merge. Supabase migrations in a shared project remain a separately reviewed deployment.
+
 - Capacitor 8: use the included integration. The frontend can be React, Vue, Angular, Svelte, or plain web code.
 - Another app backend: the backend does not need to change. Offer the Node service, Cloudflare Worker/D1/R2, a provider implementing docs/protocol.md, or a separate Supabase project used only for OTA.
 - React Native, Expo, Flutter, pure Swift/Kotlin, or another runtime: explain that the included native integration is not compatible unchanged. Assess an appropriate runtime updater or a new adapter. Never say an adapter exists just because one could be written.
@@ -26,6 +28,8 @@ Use docs/compatibility.md for the decision. If the user wants a new provider or 
 5. Pin the updater, apply the native overlay, merge public native configuration, and integrate the coordinator and startup health signal.
 6. Register redemption/payment/transfer/authentication/unsaved-form/reward-display activity guards. Never add OTA network calls to those transaction request chains.
 7. Build and verify the first native release on the target platforms. OTA cannot install its own native prerequisites into an old app.
+
+Use `doctor` for the local readiness report. `doctor --fix` may regenerate settings from pinned public trust and merge a JSON host config of the same identity; it must never replace another updater, private identity, or recorded runtime. A successful remote doctor is not device acceptance.
 
 ## Publishing a requested update
 

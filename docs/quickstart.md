@@ -4,10 +4,10 @@
 
 Use a Capacitor 8 app with a working production web build. Direct OTA does not convert an arbitrary native app into a web app. Review [compatibility](compatibility.md) first.
 
-Install Node 24+ and Python 3 on the publishing machine. Download `direct-ota-0.5.0.tgz` from the [GitHub releases](https://github.com/ibsz909i/direct-ota/releases), then install it in your app:
+Install Node 24+ and Python 3 on the publishing machine. Download `direct-ota-0.6.0.tgz` from the [GitHub releases](https://github.com/ibsz909i/direct-ota/releases), then install it in your app:
 
 ```sh
-npm install --save-exact ./direct-ota-0.5.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.6.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 ```
 
 The host app must list both native plugins directly so Capacitor discovers them. The package pins `@capgo/capacitor-updater` to 8.51.25; keep that exact version. An updater upgrade requires reviewing the native overlay and a new native build. Use Capacitor CLI 8 in the host project. If `capacitor.config` uses `includePlugins`, include both `@capgo/capacitor-updater` and `@capacitor/app` for each platform.
@@ -45,6 +45,15 @@ npx direct-ota setup --provider cloudflare --base-url https://YOUR_WORKER.YOUR_S
 
 It exports a Worker, generates ignored trust and upload-secret files, and prepares native settings. Follow [the Cloudflare guide](providers/cloudflare.md) for deployment. Cloudflare R2 must already be enabled on the intended account. The setup never creates a Worker, D1 database, R2 bucket, or release remotely.
 
+After provisioning a **dedicated** Worker, D1 database, and R2 bucket and setting their exact names/IDs in `ota-service/wrangler.jsonc`, preview the remaining steps:
+
+```sh
+npx direct-ota setup --finish --provider cloudflare --account-id YOUR_ACCOUNT_ID --plan
+npx direct-ota setup --finish --provider cloudflare --account-id YOUR_ACCOUNT_ID --apply --dedicated
+```
+
+The first command makes no changes. The second inserts the generated updater settings into a simple JSON or TypeScript Capacitor config, syncs and checks native projects, applies the already reviewed dedicated provider deployment, and checks metadata reachability. It never publishes an update or claims the device build is healthy. Existing JavaScript or dynamic configs need a manual merge before `--finish`; it refuses to overwrite another updater identity. If deployment fails after native sync, review the error and rerun the same finish command rather than generating a new identity.
+
 **Manual Supabase path:** for an existing Direct OTA integration or a host that does not meet the guided setup's npm/Capacitor requirements:
 
 ```sh
@@ -68,7 +77,7 @@ npx direct-ota native --channel internal
 
 Merge the generated `direct-ota.capacitor.json` into the `CapacitorUpdater` plugin configuration of `capacitor.config.ts` or `capacitor.config.json`; preserve unrelated plugins and settings. For JSON, repeat `native` after the merge, then sync. See the [native guide](native-integration.md) for the exact configuration and patch lifecycle.
 
-Run Capacitor sync and finalize your native configuration. Run `native` again after those setup changes so the recorded fingerprint describes the app you are building. Run `doctor` to check it. Use the generated configuration consistently for the native build and the published release.
+Run Capacitor sync and finalize your native configuration. Run `native` again after those setup changes so the recorded fingerprint describes the app you are building. Run `doctor` for a per-gate readiness report. `doctor --fix --channel internal` can regenerate local updater settings from the existing pinned trust and merge a JSON Capacitor config for the same identity. It does not alter a recorded runtime or sync/build the app. Use the generated configuration consistently for the native build and the published release.
 
 Reapply the native overlay after a clean dependency install, before syncing or compiling native code. A dependency update that no longer matches the pinned source must fail; do not force patches onto a different updater version.
 

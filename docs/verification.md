@@ -1,8 +1,12 @@
-# Verification for 0.5.0
+# Verification
+
+## 0.6.0 setup and doctor changes
+
+Version 0.6.0 adds a per-gate doctor report, restricted local repairs, and a reviewed finish path for dedicated Cloudflare/Firebase services. The local suite exercises read-only planning, JSON and TypeScript config merging, preservation of other plugin settings, native sync convergence with a synthetic runner, deployment ordering and target scoping with injected runners, malformed generated settings, runtime drift, and refusal to overwrite a different updater identity. `npm run check` passed with 56 tests passing and three environment-dependent tests skipped; it includes type checking, the Cloudflare Worker dry run, and the library build. Separately, a package tarball of these changes was installed in a disposable Capacitor 8 app, `cap add ios` created a real iOS project, guided setup ran, and `setup --finish` completed an actual `cap sync` plus a passing local `doctor`. Upgrading the fixture to the 0.6.0 tarball changed its native dependency lock, and doctor correctly rejected the old runtime until `native`, JSON repair, and `cap sync` produced a matching configuration. The provider deployment, conformance response, and remote metadata were injected for this fixture, so no account was changed. No physical app was installed or hosted capacity measured for these changes. `setup --finish` still requires pre-provisioned dedicated provider resources; it does not handle shared Supabase migrations, complex/dynamic Capacitor configs, app coordinator wiring, or device acceptance.
 
 The following checks were performed on the generalized Direct OTA package. The [case study](case-study.md) separately describes observations from the original integration.
 
-## Automated checks
+## 0.5.0 automated baseline
 
 - TypeScript type checking and production library build.
 - Signed manifest and command validation, including wrong keys/purposes, altered signatures, exact artifact hosts/paths, bounds, and compatibility.
@@ -28,7 +32,7 @@ Run `npm run check` for the portable suite. Native Swift checks require macOS/Xc
 
 ## Fresh native fixture
 
-A newly created Capacitor 8 project installed the 0.2.0 package tarball, ran guided setup, merged the generated settings, and synced the native projects. It compiled successfully for the iOS Simulator with Xcode and for Android with Gradle/OpenJDK 21. The final native overlays were used. After iOS package resolution, the runtime was regenerated, both platforms were rebuilt, and `direct-ota doctor` verified generated and copied native plugin settings. This native build evidence is from 0.2.0; versions 0.3.0 through 0.5.0 change publishing and provider code, not the native overlay.
+A newly created Capacitor 8 project installed the 0.2.0 package tarball, ran guided setup, merged the generated settings, and synced the native projects. It compiled successfully for the iOS Simulator with Xcode and for Android with Gradle/OpenJDK 21. The final native overlays were used. After iOS package resolution, the runtime was regenerated, both platforms were rebuilt, and `direct-ota doctor` verified generated and copied native plugin settings. This native build evidence is from 0.2.0; versions 0.3.0 through 0.6.0 change publishing, provider, and setup tooling, not the native overlay.
 
 ## Isolated live Cloudflare test
 

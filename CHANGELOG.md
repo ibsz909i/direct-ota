@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- Add a per-gate `doctor` readiness report and `doctor --fix` for generated settings and a JSON host config that belongs to the same publishing identity. Native runtime drift and another updater identity still fail closed.
+- Add reviewed `setup --finish` for pre-provisioned, dedicated Cloudflare and Firebase services. It merges simple JSON/TypeScript host settings, converges native sync, deploys only the selected resources, runs read-only conformance, and verifies platform metadata. Supabase migrations remain a separate reviewed operation.
+
 ## 0.5.0
 
 - Add a Firebase provider with private Storage artifacts, atomic Firestore release state, deny-all client rules, and local emulator conformance.

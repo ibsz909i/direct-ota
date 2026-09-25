@@ -45,7 +45,7 @@ Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native bui
 Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases). For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
 
 ```sh
-npm install --save-exact ./direct-ota-0.5.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.6.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
 ```
@@ -53,10 +53,10 @@ npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabas
 The interactive command shows its local changes before applying them. It detects the app ID, web directory, and native platforms, creates a **new private publishing identity**, exports a configured Supabase provider, and prepares native settings. It does **not** deploy a migration, Edge Function, bucket, or update. Review the exported files and follow the [setup guide](docs/quickstart.md) for deployment and native integration. For automation, `--yes` applies only the described local changes.
 
 For Cloudflare, replace the two `setup` commands above with `--provider cloudflare --base-url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev`, then follow the [Cloudflare guide](docs/providers/cloudflare.md). For the Node provider or an existing integration, use the separate `init`, `export-provider`, and `native` commands in the provider guides. Setup never uses your application account or backend service key as the publishing identity.
-Firebase has a matching `setup --provider firebase` flow; it requires a dedicated Blaze project before live deployment. See the [Firebase guide](docs/providers/firebase.md). `deploy --plan` validates a configured Cloudflare or Firebase service locally, and `deploy --apply --dedicated` targets the explicitly selected pre-provisioned resources. It does not enable billing or create resources.
+Firebase has a matching `setup --provider firebase` flow; it requires a dedicated Blaze project before live deployment. See the [Firebase guide](docs/providers/firebase.md). A prepared **dedicated Cloudflare or Firebase** service can use `setup --finish --provider ... --plan` to preview the exact deployment and native sync. Repeat with `--apply --dedicated` to merge a simple JSON/TypeScript Capacitor config, sync and verify the native settings, deploy only to the selected provider resources, run read-only conformance, and check each platform's metadata endpoint. It does not enable billing, create resources, publish a release, or build and test the app on a device. Shared Supabase projects retain their reviewed migration procedure.
 
 For a custom backend, `create-provider --name my-backend --out ./ota-provider` exports the typed provider admission layer and a fail-closed adapter scaffold. Run `test-provider` against your service; `test-provider --write` exercises publication and withdrawal using an isolated synthetic runtime. See [provider conformance](docs/provider-conformance.md).
-Keep both native plugins as direct app dependencies so Capacitor 8 discovers them. If your Capacitor config uses `includePlugins`, include both on every target platform; `native` and `doctor` check actual plugin discovery.
+Keep both native plugins as direct app dependencies so Capacitor 8 discovers them. If your Capacitor config uses `includePlugins`, include both on every target platform; `native` and `doctor` check actual plugin discovery. `doctor` now gives a readiness report; `doctor --fix` repairs only generated settings and a JSON host config for the same signing identity. It never changes a recorded native runtime or private keys. Sync and rebuild after a repair before claiming a device is ready.
 
 Continue with the [setup guide](docs/quickstart.md). It covers deploying a provider, integrating the native updater, protecting in-progress actions, and sending your first update. After the initial native release, the everyday flow is:
 

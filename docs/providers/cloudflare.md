@@ -15,6 +15,8 @@ Guided setup creates a fresh private identity, public `direct-ota.config.json`, 
 
 After creating and configuring the **dedicated** Worker, D1 database, and R2 bucket, `direct-ota deploy --provider cloudflare --account-id YOUR_ACCOUNT_ID --plan` validates local trust, secret permissions, names, and resource bindings. Repeat with `--apply --dedicated` to run a dry build, remote D1 migrations, two Worker secret uploads, and a strict Worker deployment against that explicit account. It creates no resource or subscription. An already deployed provider needs the new `0002_telemetry.sql` migration before enabling events.
 
+For a new host prepared by `setup`, `direct-ota setup --finish --provider cloudflare --account-id YOUR_ACCOUNT_ID --plan` combines this deployment preview with the native integration plan. After reviewing the target, repeat with `--apply --dedicated`. It syncs and checks the host's native settings before touching Cloudflare, then verifies public metadata after deployment. It does not create the Worker/D1/R2 resources, install a phone build, or publish an update.
+
 ```sh
 npx direct-ota init --app-id app.example.demo --base-url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev --provider cloudflare
 npx direct-ota export-provider --provider cloudflare --out ./ota-service

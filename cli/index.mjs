@@ -10,13 +10,14 @@ const help = `Direct OTA — signed updates on your infrastructure
 
 direct-ota init --app-id app.example.demo --base-url https://updates.example.com [--provider node|supabase|cloudflare|firebase]
 direct-ota setup --provider supabase|cloudflare|firebase --base-url https://YOUR_HOST [--channel internal] [--plan|--yes]
+direct-ota setup --finish --provider cloudflare|firebase --account-id ID|--target ID --bucket NAME [--plan|--apply --dedicated]
 direct-ota deploy --provider cloudflare --account-id ID [--plan|--apply --dedicated]
 direct-ota deploy --provider firebase --target PROJECT_ID --bucket BUCKET [--plan|--apply --dedicated]
 direct-ota export-provider --provider node|supabase|cloudflare|firebase --out ./ota-service
 direct-ota create-provider --name my-backend --out ./ota-provider
 direct-ota native --channel internal|production
 direct-ota patch
-direct-ota doctor [--remote --platform ios|android] [--channel internal]
+direct-ota doctor [--fix] [--remote --platform ios|android] [--channel internal]
 direct-ota test-provider [--write]  (write mode uses a synthetic runtime; use an isolated service)
 direct-ota publish --platform ios|android --version 1.0.1 [--out DIR]
 direct-ota prepare --platform ios|android --version 1.0.1 [--channel internal] [--rollout 100] [--out DIR]
@@ -29,7 +30,7 @@ direct-ota rollback --from DIR --platform ios|android --channel production
 direct-ota withdraw --platform ios|android --channel production
 
 All commands accept --project DIR and --identity FILE. Test changed features before publish.
-setup prepares local files only; it never deploys a provider or publishes an update.
+setup prepares local files only. setup --finish reviews dedicated deployment, syncs native settings, and verifies the service.
 native produces configuration for the first store build; frontend updates use prepare/upload/promote.
 publish runs the host app build, then prepares, uploads, promotes, and verifies an internal release.
 See docs/quickstart.md and AGENTS.md for setup and release rules.
@@ -38,7 +39,7 @@ try {
   const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries([
     'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','rollout','release-id','name','account-id','target','bucket'
   ].map(name => [name, {type: 'string'}]).concat([
-    ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}], ['remote', {type:'boolean'}], ['write', {type:'boolean'}], ['apply', {type:'boolean'}], ['dedicated', {type:'boolean'}]
+    ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}], ['remote', {type:'boolean'}], ['write', {type:'boolean'}], ['apply', {type:'boolean'}], ['dedicated', {type:'boolean'}], ['fix', {type:'boolean'}], ['finish', {type:'boolean'}]
   ]))});
   const action = positionals[0];
   if (!action || values.help) { console.log(help); process.exit(0); }
@@ -56,6 +57,13 @@ try {
     console.log(result.plan);
     if (result.applied) console.log('Provider deployment commands completed. Run test-provider, doctor --remote, and a device update before production use.');
   } else if (action === 'setup') {
+    if (values.finish) {
+      const {finishSetup} = await import('./finish-setup.mjs');
+      const result = await finishSetup(root, values);
+      console.log(result.plan);
+      if (result.applied) console.log('Native settings and dedicated provider verified. Build and test the first native release on each target device.');
+      process.exit(0);
+    }
     const {guidedSetup} = await import('./setup.mjs');
     const result = await guidedSetup(root, {
       provider: values.provider, appId: values['app-id'], baseUrl: values['base-url'],
@@ -101,12 +109,12 @@ try {
         await native.writeNativeConfig(root, config, {channel: values.channel || 'internal'});
         console.log('Native integration prepared. Merge the generated plugin configuration, sync Capacitor, then build and verify each target platform.');
       } else {
-        const {verifyNativeProject} = await import('./doctor.mjs');
-        await verifyNativeProject(root, config, values.remote ? values.platform : undefined);
-        if (values.remote) {
-          const {verifyRemote} = await import('./remote-doctor.mjs');
-          console.log(JSON.stringify(await verifyRemote(root, config, values), null, 2));
-        } else console.log('Native runtime and generated/synced plugin configuration match. This does not verify deployment or device installation.');
+        const {diagnoseProject, formatDoctorReport} = await import('./doctor.mjs');
+        const remote = values.remote ? (await import('./remote-doctor.mjs')).verifyRemote : undefined;
+        const report = await diagnoseProject(root, config, values, remote);
+        if (report.ready && values.remote) console.log(JSON.stringify({...report.remoteResult, readiness: report.checks}, null, 2));
+        else if (report.ready) console.log(formatDoctorReport(report));
+        else { console.error(formatDoctorReport(report)); process.exitCode = 1; }
       }
     } else {
       const identity = await readIdentity(root, config, values.identity);
