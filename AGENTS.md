@@ -16,6 +16,7 @@ Use docs/compatibility.md for the decision. If the user wants a new provider or 
 ## Integration
 
 1. Read docs/quickstart.md, docs/native-integration.md, SECURITY.md, and the chosen provider guide.
+   For a new Capacitor 8 + npm + Supabase integration, preview `direct-ota setup --provider supabase --base-url <project HTTPS origin> --plan` and use the interactive setup. It prepares local files only. Review the exported migration and verify the linked remote project before deploying it.
 2. Preserve unrelated working-tree changes. Do not copy credentials or private app history into another repository.
 3. Create a new local publishing identity. Store it outside version control. Backend service credentials remain server-side.
 4. Deploy update metadata and artifact delivery independently from application data and authentication. An app using another backend may use Supabase only for updates.

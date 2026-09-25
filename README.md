@@ -40,17 +40,17 @@ Pure Swift/Kotlin apps, React Native, Expo, Flutter, desktop apps, and arbitrary
 
 Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native builds, use the usual Xcode and Android toolchains.
 
-Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases), then initialize your app:
+Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases). For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
 
 ```sh
-npm install --save-exact ./direct-ota-0.1.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
-npx direct-ota init \
-  --app-id app.example.demo \
-  --base-url https://updates.example.com \
-  --provider node
+npm install --save-exact ./direct-ota-0.2.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
+npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
 ```
 
-This creates public configuration and a **new private publishing identity**. It never uses your application account or backend service key as the publishing identity.
+The interactive command shows its local changes before applying them. It detects the app ID, web directory, and native platforms, creates a **new private publishing identity**, exports a configured Supabase provider, and prepares native settings. It does **not** deploy a migration, Edge Function, bucket, or update. Review the exported files and follow the [setup guide](docs/quickstart.md) for deployment and native integration. For automation, `--yes` applies only the described local changes.
+
+For the Node provider or an existing integration, use the separate `init`, `export-provider`, and `native` commands in the provider guides. Setup never uses your application account or backend service key as the publishing identity.
 Keep both native plugins as direct app dependencies so Capacitor 8 discovers them. If your Capacitor config uses `includePlugins`, include both on every target platform; `native` and `doctor` check actual plugin discovery.
 
 Continue with the [setup guide](docs/quickstart.md). It covers deploying a provider, integrating the native updater, protecting in-progress actions, and sending your first update. After the initial native release, the everyday flow is:

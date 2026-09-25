@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 import {parseArgs} from 'node:util';
-import {resolve, join, dirname} from 'node:path';
-import {mkdir, cp, readdir} from 'node:fs/promises';
-import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
 import {readConfig, readIdentity, initProject} from './config.mjs';
+import {exportProvider} from './provider.mjs';
 import {command} from './transport.mjs';
 import {selector, prepare, upload, promote, instruction} from './releases.mjs';
 
 const help = `Direct OTA — signed updates on your infrastructure
 
 direct-ota init --app-id app.example.demo --base-url https://updates.example.com [--provider node|supabase]
+direct-ota setup --provider supabase [--base-url https://PROJECT.supabase.co] [--channel internal] [--plan|--yes]
 direct-ota export-provider --provider node|supabase --out ./ota-service
 direct-ota native --channel internal|production
 direct-ota patch
@@ -23,39 +23,43 @@ direct-ota rollback --from DIR --platform ios|android --channel production
 direct-ota withdraw --platform ios|android --channel production
 
 All commands accept --project DIR and --identity FILE. Build and test changed features before prepare.
+setup prepares local files only; it never deploys to Supabase or publishes an update.
 native produces configuration for the first store build; frontend updates use prepare/upload/promote.
 See docs/quickstart.md and AGENTS.md for setup and release rules.
 `;
 try {
   const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries([
     'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','rollout'
-  ].map(name => [name, {type: 'string'}]).concat([['help', {type:'boolean', short:'h'}]]))});
+  ].map(name => [name, {type: 'string'}]).concat([
+    ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}]
+  ]))});
   const action = positionals[0];
   if (!action || values.help) { console.log(help); process.exit(0); }
   if (positionals.length !== 1) throw new Error('Unexpected positional arguments');
   const root = resolve(values.project || '.');
-  if (action === 'init') {
+  if (action === 'setup') {
+    const {guidedSetup} = await import('./setup.mjs');
+    const result = await guidedSetup(root, {
+      provider: values.provider, appId: values['app-id'], baseUrl: values['base-url'],
+      out: values.out, channel: values.channel, plan: values.plan, yes: values.yes,
+    });
+    if (values.plan || !result.applied) console.log(result.plan);
+    else console.log([
+      'Local setup prepared. No Supabase project was changed.',
+      'Next:',
+      '1. Review ota-service/migrations, ota-service/setup.sql, and the intended linked Supabase project.',
+      '2. Apply the reviewed migration and setup SQL; set Edge trust from .direct-ota/supabase-trust.env; deploy both functions.',
+      '3. Merge direct-ota.capacitor.json into CapacitorUpdater settings, then run native again and npx cap sync.',
+      '4. Wire the updater coordinator and readiness signal, build a native app, run npx direct-ota doctor, and test an internal OTA on a device.',
+      'See docs/quickstart.md and docs/providers/supabase.md for the exact deployment steps.',
+    ].join('\n'));
+  } else if (action === 'init') {
     await initProject(root, {appId: values['app-id'], baseUrl: values['base-url'], provider: values.provider});
     console.log('Created public configuration and a private local publishing identity. Back up .direct-ota/identity.json securely; never commit it.');
   } else if (action === 'export-provider') {
     if (!['node','supabase'].includes(values.provider) || !values.out) throw new Error('Specify --provider node|supabase and --out DIR');
     const dest = resolve(root, values.out);
-    await mkdir(dest, {recursive: false});
-    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-    const source = join(packageRoot, 'providers', values.provider);
-    const developmentProtocol = join(source, 'functions/_shared/protocol.ts');
-    for (const name of await readdir(source)) {
-      if (values.provider === 'node' && (name === '.gitignore' || name === 'gitignore.template')) continue;
-      await cp(join(source, name), join(dest, name), {recursive: true, errorOnExist: true, force: false,
-        filter: item => item !== developmentProtocol});
-    }
-    if (values.provider === 'node') {
-      await cp(join(source, 'gitignore.template'), join(dest, '.gitignore'), {errorOnExist: true, force: false});
-    }
-    if (values.provider === 'supabase') {
-      await mkdir(join(dest, 'functions/_shared'), {recursive: true});
-      await cp(join(packageRoot,'src/protocol.ts'), join(dest,'functions/_shared/protocol.ts'), {errorOnExist: true, force: false});
-    }
+    await exportProvider(values.provider, dest);
     console.log('Provider files exported. Follow its README to deploy with your public trust configuration.');
   } else {
     const config = await readConfig(root);

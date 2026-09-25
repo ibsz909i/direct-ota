@@ -13,7 +13,7 @@ Identify the app runtime and backend separately. Capacitor 8 is supported by the
 
 The app can keep any backend. Offer the Node provider, a provider following docs/protocol.md, or Supabase dedicated to updates. Explain that free hosting tiers have quotas.
 
-Follow docs/quickstart.md and the selected provider guide. Generate fresh keys, preserve unrelated work, keep all private material out of Git, and complete the initial native installation. Verify each platform before assigning its production channel.
+Follow docs/quickstart.md and the selected provider guide. For a new Capacitor 8 + npm + Supabase host, run `direct-ota setup --provider supabase --base-url <project HTTPS origin> --plan` before its interactive local setup. The command does not deploy Supabase resources or merge host application code. Review the target project and exported SQL before remote deployment. Generate fresh keys, preserve unrelated work, keep all private material out of Git, and complete the initial native installation. Verify each platform before assigning its production channel.
 
 ## Publish
 

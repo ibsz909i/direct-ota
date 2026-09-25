@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Guided local Supabase setup for Capacitor 8 apps, with a read-only plan and explicit application.
+- Detect the host app ID, web directory, and native platforms; export project-specific public setup SQL and an ignored Edge trust file.
+- Keep remote database, Storage, and Edge Function deployment under explicit operator control.
+
 ## 0.1.0
 
 Initial public release.

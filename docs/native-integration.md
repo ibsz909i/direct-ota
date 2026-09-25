@@ -5,7 +5,7 @@ Direct OTA's native client supports Capacitor 8 on iOS and Android with `@capgo/
 ## Install and configure
 
 1. Create `direct-ota.config.json` with your own app ID, HTTPS check and artifact URLs, signing public JWK, bundle public key, and runtime inputs. Keep all private keys outside the app and public repository.
-2. In the host Capacitor 8 app, run `npm install --save-exact ./direct-ota-0.1.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8`. Ensure Capacitor CLI 8 is installed in the host project. Both native plugins must be direct app dependencies. If `includePlugins` is set globally or per platform, include both there too. Add the iOS and Android platforms and run an initial `npx cap sync`.
+2. In the host Capacitor 8 app, run `npm install --save-exact ./direct-ota-0.2.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8`. Ensure Capacitor CLI 8 is installed in the host project. Both native plugins must be direct app dependencies. If `includePlugins` is set globally or per platform, include both there too. Add the iOS and Android platforms and run an initial `npx cap sync`.
 3. Run `npx direct-ota native --channel internal` for an internal binary or `npx direct-ota native --channel production` for a production binary. This verifies the pristine Capgo source hash before patching and writes `direct-ota.runtime.json` and `direct-ota.capacitor.json`.
 4. Merge the generated plugin settings into `capacitor.config.ts`:
 
@@ -21,6 +21,8 @@ const config: CapacitorConfig = {
 };
 export default config;
 ```
+
+For `capacitor.config.json`, copy the generated object into `plugins.CapacitorUpdater`, run `native` again, then sync. The runtime fingerprint excludes only that generated JSON plugin object to avoid hashing its own runtime value. It still hashes the other Capacitor settings and the pinned trust configuration; `doctor` compares the effective settings copied into both native platforms.
 
 5. Run `npx direct-ota native --channel <same-channel>` again after changing `capacitor.config.ts`, then `npx cap sync` and `npx direct-ota doctor`. If sync changed a declared native input, regenerate the runtime config, sync, and check again before building. A runtime mismatch requires a new native binary; do not use the old runtime for a web release.
 
@@ -65,4 +67,4 @@ try { await saveOpenForm(); } finally { finish(); }
 
 The coordinator retries transient metadata and download errors with bounded backoff. It keeps a previously accepted mandatory update active if a check fails or returns no manifest. Cellular transfer requires an explicit user action; native consent and partial bytes persist for resume. Integrity and storage failures require visible recovery and do not loop automatically. The native layer validates the ES256 signature, app and runtime compatibility, exact artifact URL, archive hash, encrypted bundle checksum, ZIP entry bounds, and activation state before switching bundles. It quarantines failed bundles and rolls back a bundle that does not signal local readiness within the watchdog window.
 
-The runtime fingerprint hashes declared native inputs by sorted path and bytes, the pinned trust configuration, and Direct OTA's native patch specification and overlay sources. Capacitor generated web assets and config copies are excluded. Native source, native resources, plugin registrations, and `Package.resolved` are included because their resolved contents affect the binary. The first sync or Xcode package resolution can therefore require regenerating the runtime and building again; `doctor` must pass after the final sync/build. The internal or production channel in `direct-ota.capacitor.json` does not itself change the runtime hash, but each channel remains a distinct signed selector pinned in its binary.
+The runtime fingerprint hashes declared native inputs by sorted path and bytes, the pinned trust configuration, and Direct OTA's native patch specification and overlay sources. For a JSON Capacitor config, the generated `plugins.CapacitorUpdater` object is normalized out as described above. Capacitor generated web assets and config copies are excluded. Native source, native resources, plugin registrations, and `Package.resolved` are included because their resolved contents affect the binary. The first sync or Xcode package resolution can therefore require regenerating the runtime and building again; `doctor` must pass after the final sync/build. The internal or production channel in `direct-ota.capacitor.json` does not itself change the runtime hash, but each channel remains a distinct signed selector pinned in its binary.

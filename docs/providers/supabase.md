@@ -4,6 +4,8 @@ This provider uses PostgreSQL for release state, Storage for distributable artif
 
 ## Export and configure
 
+For a new npm-based Capacitor 8 app, `direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan` previews the local setup. Running it interactively creates a fresh identity, exports this provider into `ota-service/`, fills `setup.sql` with the public app values, writes an ignored `.direct-ota/supabase-trust.env`, and prepares the native overlay and settings. It makes **no remote Supabase changes**. Review the result before deploying. Use the commands below when integrating manually or continuing an existing setup.
+
 ```sh
 npx direct-ota init --app-id app.example.demo --base-url https://YOUR_PROJECT.supabase.co --provider supabase
 npx direct-ota export-provider --provider supabase --out ./ota-service
@@ -13,9 +15,9 @@ The export copies the canonical protocol into `functions/_shared/protocol.ts`. T
 
 Create a Supabase CLI workspace with `supabase init`. Copy the exported `functions/` and `migrations/` directories into its `supabase/` directory and merge the exported function entries into `supabase/config.toml`. Preserve unrelated configuration. Link the intended project, inspect the migration, and apply it with `supabase db push`.
 
-Edit the exported `setup.sql` with the public app ID, environment, key ID, artifact base, and backend contract from `direct-ota.config.json`. Run it once as database owner after the migration. It creates the single enabled publisher configuration. No publisher is enabled by the migration itself. Do not put the EC/RSA private identity in SQL, Edge secrets, or source control.
+For manual exports, edit the exported `setup.sql` with the public app ID, environment, key ID, artifact base, and backend contract from `direct-ota.config.json`. Guided setup fills those public values for you. Review the exact statement and run it once as database owner after the migration. It creates the single enabled publisher configuration. No publisher is enabled by the migration itself. Do not put the EC/RSA private identity in SQL, Edge secrets, or source control.
 
-Set `OTA_TRUST_JSON` in Edge secrets to the public configuration JSON. Use a protected environment file with `supabase secrets set --env-file`; do not commit that file. Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the functions. The artifact base must exactly match this project's public `direct-ota` bucket endpoint.
+Set `OTA_TRUST_JSON` in Edge secrets to the public configuration JSON. Guided setup creates `.direct-ota/supabase-trust.env` for `supabase secrets set --env-file` after you have linked and verified the intended project; do not commit that file. Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the functions. The artifact base must exactly match this project's public `direct-ota` bucket endpoint.
 
 Deploy `direct-ota-check` and `direct-ota-publish` with the supplied `verify_jwt=false` configuration or `--no-verify-jwt`. This intentionally bypasses Supabase's application JWT gate: devices may check while logged out, and publishing uses its own pinned ES256 command authorization. The function verifies purpose, audience, lifetime, nonce shape and nested manifest before the service-only RPC. An anon or user JWT cannot grant publishing rights.
 

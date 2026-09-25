@@ -31,6 +31,10 @@ test('native overlay checks pinned upstream, applies exact hashes and is idempot
   assert.doesNotThrow(()=>installNative(fixture,config));
   const drift=path.join(target,patches[0].path);fs.appendFileSync(drift,'\n// drift\n');
   assert.throws(()=>installNative(fixture,config),/Updater source drift/);
+  const outside=path.join(fixture,'outside.swift');fs.writeFileSync(outside,'outside package');
+  fs.rmSync(drift);fs.symlinkSync(outside,drift);
+  assert.throws(()=>installNative(fixture,config),/regular package file/);
+  assert.equal(fs.readFileSync(outside,'utf8'),'outside package');
 });
 
 test('fingerprint tracks declared native bytes while generated files stay stable', t=>{
@@ -66,6 +70,23 @@ test('fingerprint tracks declared native bytes while generated files stay stable
   fs.writeFileSync(path.join(fixture,'android','Main.java'),'changed');
   assert.notEqual(fingerprintNative(fixture,config),withResource);
   assert.throws(()=>writeNativeConfig(fixture,{...config,artifactBaseUrl:'http://example.invalid/artifacts'}),/HTTPS/);
+});
+
+test('JSON Capacitor config can embed generated updater settings without a runtime loop', t=>{
+  const fixture=fs.mkdtempSync(path.join(os.tmpdir(),'direct-ota-json-runtime-'));
+  t.after(()=>fs.rmSync(fixture,{recursive:true,force:true}));
+  fs.mkdirSync(path.join(fixture,'ios'));
+  fs.writeFileSync(path.join(fixture,'package-lock.json'),'{}');
+  const file=path.join(fixture,'capacitor.config.json');
+  const app={appId:'app.example.demo',appName:'Demo',webDir:'www'};
+  fs.writeFileSync(file,JSON.stringify(app));
+  const hostConfig={...config,runtimeInputs:['capacitor.config.json','package-lock.json','ios']};
+  const before=fingerprintNative(fixture,hostConfig);
+  const generated=writeNativeConfig(fixture,hostConfig,{channel:'internal'});
+  fs.writeFileSync(file,JSON.stringify({...app,plugins:{CapacitorUpdater:generated.plugin}}));
+  assert.equal(fingerprintNative(fixture,hostConfig),before);
+  fs.writeFileSync(file,JSON.stringify({...app,appName:'Changed',plugins:{CapacitorUpdater:generated.plugin}}));
+  assert.notEqual(fingerprintNative(fixture,hostConfig),before);
 });
 
 test('Swift protocol verifies synthetic signatures and rejects drift',t=>{

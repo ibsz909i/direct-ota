@@ -4,10 +4,10 @@
 
 Use a Capacitor 8 app with a working production web build. Direct OTA does not convert an arbitrary native app into a web app. Review [compatibility](compatibility.md) first.
 
-Install Node 24+ and Python 3 on the publishing machine. Download `direct-ota-0.1.0.tgz` from the [GitHub release](https://github.com/ibsz909i/direct-ota/releases/tag/v0.1.0), then install it in your app:
+Install Node 24+ and Python 3 on the publishing machine. Download `direct-ota-0.2.0.tgz` from the [GitHub release](https://github.com/ibsz909i/direct-ota/releases/tag/v0.2.0), then install it in your app:
 
 ```sh
-npm install --save-exact ./direct-ota-0.1.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.2.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 ```
 
 The host app must list both native plugins directly so Capacitor discovers them. The package pins `@capgo/capacitor-updater` to 8.51.25; keep that exact version. An updater upgrade requires reviewing the native overlay and a new native build. Use Capacitor CLI 8 in the host project. If `capacitor.config` uses `includePlugins`, include both `@capgo/capacitor-updater` and `@capacitor/app` for each platform.
@@ -23,7 +23,18 @@ npx direct-ota init --app-id app.example.demo --base-url https://updates.example
 npx direct-ota export-provider --provider node --out ./ota-service
 ```
 
-**Supabase:** use an existing reviewed project or a separate project only for updates. Follow [the Supabase guide](providers/supabase.md). Use your own project URL:
+**Supabase:** use an existing reviewed project or a separate project only for updates. The guided command requires a Capacitor 8 app with npm's `package-lock.json`, at least one native platform, and both native plugins installed as direct dependencies. It reads your Capacitor app ID and web directory. Preview its changes, then run it interactively:
+
+```sh
+npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
+npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
+```
+
+The setup creates the private identity and public config, exports a provider to `ota-service/`, fills its public `setup.sql` values, writes an ignored `.direct-ota/supabase-trust.env` file, applies the pinned native overlay, and generates native settings. No remote Supabase action occurs. For a noninteractive local setup after reviewing `--plan`, use `--yes`. Existing Direct OTA identities, generated files, and provider output are never overwritten. If a local step fails, inspect the files already created and continue using the manual commands; do not regenerate a new signing identity for an app already installed on devices.
+
+Follow [the Supabase guide](providers/supabase.md) to review the SQL and deploy to the *intended* linked project. Then merge the generated native settings, sync and build the app, run `doctor`, and test an internal OTA on a device. Setup does not make the app ready for OTA by itself.
+
+**Manual Supabase path:** for an existing Direct OTA integration or a host that does not meet the guided setup's npm/Capacitor requirements:
 
 ```sh
 npx direct-ota init --app-id app.example.demo --base-url https://YOUR_PROJECT.supabase.co --provider supabase
@@ -38,13 +49,13 @@ Check `webDir` and `runtimeInputs` in the generated configuration. Set your actu
 
 ## 3. Integrate the native updater
 
-Ensure your native iOS/Android projects already exist. Then:
+For a manual integration, ensure your native iOS/Android projects already exist. Then:
 
 ```sh
 npx direct-ota native --channel internal
 ```
 
-Merge the generated `direct-ota.capacitor.json` into the `CapacitorUpdater` plugin configuration of `capacitor.config.ts`; preserve unrelated plugins and settings. See the [native guide](native-integration.md) for the exact configuration and patch lifecycle.
+Merge the generated `direct-ota.capacitor.json` into the `CapacitorUpdater` plugin configuration of `capacitor.config.ts` or `capacitor.config.json`; preserve unrelated plugins and settings. For JSON, repeat `native` after the merge, then sync. See the [native guide](native-integration.md) for the exact configuration and patch lifecycle.
 
 Run Capacitor sync and finalize your native configuration. Run `native` again after those setup changes so the recorded fingerprint describes the app you are building. Run `doctor` to check it. Use the generated configuration consistently for the native build and the published release.
 

@@ -81,16 +81,21 @@ export function verifyCapacitorPlugins(projectRoot) {
   return found;
 }
 
-/** Apply the exact Direct OTA overlay to an installed, pristine Capgo 8.51.25 package. */
-export function installNative(projectRoot, config, _options = {}) {
-  requireConfig(config);
+/** Check every pinned source and overlay before a guided setup writes an identity. */
+function nativeWrites(projectRoot) {
   const base = path.join(projectRoot, 'node_modules', '@capgo', 'capacitor-updater');
+  const baseStat = fs.lstatSync(base);
+  if (!baseStat.isDirectory() || baseStat.isSymbolicLink()) throw Error('Updater package must be a real directory for native patching');
+  const realBase = fs.realpathSync(base);
+  const insidePackage = file => fs.realpathSync(file).startsWith(realBase + path.sep);
   const version = readJson(path.join(base, 'package.json')).version;
   if (version !== updaterVersion) throw Error(`Direct OTA requires @capgo/capacitor-updater ${updaterVersion}`);
   const spec = readJson(path.join(packageRoot, 'native', 'patches.json'));
   const writes = [];
   for (const item of spec) {
     const file = path.join(base, item.path);
+    const fileStat = fs.lstatSync(file);
+    if (!fileStat.isFile() || fileStat.isSymbolicLink() || !insidePackage(file)) throw Error(`Updater source is not a regular package file: ${item.path}`);
     const original = fs.readFileSync(file, 'utf8');
     const currentHash = sha256(original);
     if (currentHash === item.patchedSha256) continue;
@@ -113,13 +118,30 @@ export function installNative(projectRoot, config, _options = {}) {
   for (const [source, target] of overlay) {
     const bytes = fs.readFileSync(path.join(packageRoot, 'native', source));
     const destination = path.join(base, target);
+    if (!insidePackage(path.dirname(destination))) throw Error(`Native overlay path escapes updater package: ${target}`);
+    if (fs.existsSync(destination)) {
+      const destinationStat = fs.lstatSync(destination);
+      if (!destinationStat.isFile() || destinationStat.isSymbolicLink()) throw Error(`Native overlay is not a regular file: ${target}`);
+    }
     if (fs.existsSync(destination) && sha256(fs.readFileSync(destination)) !== sha256(bytes)) {
       throw Error(`Native overlay drift: ${target}`);
     }
     writes.push([destination, bytes]);
   }
+  return {writes, updaterVersion, patchedFiles: spec.length, overlayFiles: overlay.length};
+}
+
+export function verifyNativePatch(projectRoot) {
+  const {updaterVersion, patchedFiles, overlayFiles} = nativeWrites(projectRoot);
+  return {updaterVersion, patchedFiles, overlayFiles};
+}
+
+/** Apply the exact Direct OTA overlay to an installed, pristine Capgo 8.51.25 package. */
+export function installNative(projectRoot, config) {
+  requireConfig(config);
+  const {writes, updaterVersion, patchedFiles, overlayFiles} = nativeWrites(projectRoot);
   for (const [file, content] of writes) fs.writeFileSync(file, content);
-  return {updaterVersion, patchedFiles: spec.length, overlayFiles: overlay.length};
+  return {updaterVersion, patchedFiles, overlayFiles};
 }
 
 /** Hash only declared native compatibility inputs, including path names and file bytes. */
@@ -164,7 +186,20 @@ export function fingerprintNative(projectRoot, config) {
   }
   for (const relative of [...new Set(files)].sort()) {
     hash.update(relative + '\0');
-    hash.update(fs.readFileSync(path.join(root, relative)));
+    const bytes = fs.readFileSync(path.join(root, relative));
+    if (relative === 'capacitor.config.json') {
+      // JSON hosts embed the generated plugin object. Its runtime field cannot
+      // hash itself; trust and updater settings are pinned separately and doctor
+      // compares the effective native copies. Keep every other config field.
+      const parsed = JSON.parse(bytes.toString('utf8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw Error('Invalid capacitor.config.json');
+      const normalized = structuredClone(parsed);
+      if (normalized.plugins && typeof normalized.plugins === 'object' && !Array.isArray(normalized.plugins)) {
+        delete normalized.plugins.CapacitorUpdater;
+        if (!Object.keys(normalized.plugins).length) delete normalized.plugins;
+      }
+      hash.update(JSON.stringify(normalized));
+    } else hash.update(bytes);
     hash.update('\0');
   }
   return hash.digest('hex');

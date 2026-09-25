@@ -51,7 +51,8 @@ export function validateConfig(config) {
 }
 export async function readConfig(root) { return validateConfig(JSON.parse(await readFile(join(root, CONFIG), 'utf8'))); }
 export async function writeJson(path, value, mode = 0o644) { await writeFile(path, JSON.stringify(value, null, 2) + '\n', {flag: 'wx', mode}); }
-export async function initProject(root, {appId, baseUrl, provider = 'node'}) {
+export async function initProject(root, {appId, baseUrl, provider = 'node', webDir = 'dist',
+  runtimeInputs = ['capacitor.config.ts', 'package-lock.json', 'ios', 'android']}) {
   if (!['node', 'supabase'].includes(provider)) throw new Error('Provider must be node or supabase');
   httpsUrl(baseUrl + "/");
   if (baseUrl.endsWith('/')) throw new Error('Remove the trailing slash from --base-url');
@@ -64,7 +65,7 @@ export async function initProject(root, {appId, baseUrl, provider = 'node'}) {
     publishUrl: baseUrl + (provider === 'node' ? '/publish' : '/functions/v1/direct-ota-publish'),
     keyId, publicJwk: signing.publicKey.export({format: 'jwk'}),
     bundlePublicKey: bundle.publicKey.export({type: 'spki', format: 'pem'}),
-    webDir: 'dist', runtimeInputs: ['capacitor.config.ts', 'package-lock.json', 'ios', 'android'],
+    webDir, runtimeInputs,
     uploadOrigins: [new URL(baseUrl).origin]});
   // All writes are create-only. Never silently replace the identity trusted by installed apps.
   await mkdir(root, {recursive: true});
