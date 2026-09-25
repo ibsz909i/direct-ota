@@ -10,6 +10,9 @@ struct DirectOtaLimits {
     let archiveBytes: Int, unpackedBytes: Int, files: Int
     var valid: Bool { (5242880...52428800).contains(archiveBytes) && (26214400...104857600).contains(unpackedBytes) && (1000...5000).contains(files) && unpackedBytes >= archiveBytes }
 }
+struct DirectOtaSigningKey {
+    let keyId: String, x: String, y: String
+}
 struct DirectOtaManifest: Codable {
     let protocolVersion: Int
     let appId: String, environment: String, platform: String, channel: String, runtime: String
@@ -21,6 +24,29 @@ struct DirectOtaManifest: Codable {
 }
 enum DirectOtaFailure: String, Error { case invalid = "OTA_INVALID", network = "OTA_NETWORK", paused = "OTA_PAUSED", storage = "OTA_STORAGE", replay = "OTA_REPLAY", quarantined = "OTA_QUARANTINED", busy = "OTA_BUSY" }
 enum DirectOtaProtocol {
+    static func signingKeys(_ json: String?, keyId: String, x: String, y: String) throws -> [DirectOtaSigningKey] {
+        guard keyId.range(of: "^[A-Za-z0-9_-]{1,80}$", options: .regularExpression) != nil,
+              (try base64url(x)).count == 32, (try base64url(y)).count == 32 else { throw DirectOtaFailure.invalid }
+        guard let json, !json.isEmpty else { return [DirectOtaSigningKey(keyId: keyId, x: x, y: y)] }
+        guard json.utf8.count <= 2048, let value = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [[String: String]],
+              (2...4).contains(value.count), value[0]["keyId"] == keyId,
+              value[0]["x"] == x, value[0]["y"] == y else { throw DirectOtaFailure.invalid }
+        var seen = Set<String>(), keys: [DirectOtaSigningKey] = []
+        for entry in value {
+            guard entry.count == 3, let id = entry["keyId"], let px = entry["x"], let py = entry["y"],
+                  id.range(of: "^[A-Za-z0-9_-]{1,80}$", options: .regularExpression) != nil,
+                  seen.insert(id).inserted, (try base64url(px)).count == 32,
+                  (try base64url(py)).count == 32 else { throw DirectOtaFailure.invalid }
+            keys.append(DirectOtaSigningKey(keyId: id, x: px, y: py))
+        }
+        return keys
+    }
+    static func signerIndex(_ jws: String, keys: [DirectOtaSigningKey]) throws -> Int {
+        let parts = jws.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, let header = try JSONSerialization.jsonObject(with: base64url(String(parts[0]))) as? [String: String],
+              let kid = header["kid"], let index = keys.firstIndex(where: { $0.keyId == kid }) else { throw DirectOtaFailure.invalid }
+        return index
+    }
     static func base64url(_ value: String) throws -> Data {
         guard !value.isEmpty, value.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { throw DirectOtaFailure.invalid }
         let padded = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/") + String(repeating: "=", count: (4 - value.count % 4) % 4)
@@ -28,15 +54,16 @@ enum DirectOtaProtocol {
               data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") == value else { throw DirectOtaFailure.invalid }
         return data
     }
-    static func verify(_ jws: String, keyId: String, x: String, y: String, appId: String, environment: String, artifactBaseUrl: String, backendContract: Int, runtime: String, channel: String, platform: String = "ios", limits: DirectOtaLimits = DirectOtaLimits(archiveBytes: 5242880, unpackedBytes: 26214400, files: 1000)) throws -> DirectOtaManifest {
+    static func verify(_ jws: String, keyId: String, x: String, y: String, appId: String, environment: String, artifactBaseUrl: String, backendContract: Int, runtime: String, channel: String, platform: String = "ios", limits: DirectOtaLimits = DirectOtaLimits(archiveBytes: 5242880, unpackedBytes: 26214400, files: 1000), trustedKeysJSON: String? = nil) throws -> DirectOtaManifest {
         guard limits.valid else { throw DirectOtaFailure.invalid }
         guard jws.utf8.count <= 8192 else { throw DirectOtaFailure.invalid }
         let parts = jws.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 3 else { throw DirectOtaFailure.invalid }
         let header = try JSONSerialization.jsonObject(with: base64url(parts[0])) as? [String: String]
-        guard header?.count == 3, header?["alg"] == "ES256", header?["typ"] == "DIRECT-OTA", header?["kid"] == keyId else { throw DirectOtaFailure.invalid }
-        guard (try base64url(x)).count == 32, (try base64url(y)).count == 32 else { throw DirectOtaFailure.invalid }
-        var raw = Data([4]); raw.append(try base64url(x)); raw.append(try base64url(y))
+        guard header?.count == 3, header?["alg"] == "ES256", header?["typ"] == "DIRECT-OTA" else { throw DirectOtaFailure.invalid }
+        let keys = try signingKeys(trustedKeysJSON, keyId: keyId, x: x, y: y)
+        let selected = keys[try signerIndex(jws, keys: keys)]
+        var raw = Data([4]); raw.append(try base64url(selected.x)); raw.append(try base64url(selected.y))
         let key = try P256.Signing.PublicKey(x963Representation: raw)
         let signature = try P256.Signing.ECDSASignature(rawRepresentation: base64url(parts[2]))
         guard key.isValidSignature(signature, for: Data((parts[0] + "." + parts[1]).utf8)) else { throw DirectOtaFailure.invalid }

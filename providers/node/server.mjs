@@ -78,9 +78,17 @@ export async function createOtaServer({trust, dataDir, uploadSecret, uploadBaseU
       CREATE INDEX IF NOT EXISTS release_history ON releases(selector,promoted,sequence DESC);
       CREATE TABLE IF NOT EXISTS heads (selector TEXT PRIMARY KEY, sequence INTEGER NOT NULL, release_id TEXT NOT NULL REFERENCES releases(id));
       CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, operation TEXT NOT NULL, release_id TEXT NOT NULL REFERENCES releases(id), sequence INTEGER NOT NULL);`);
-    const fingerprint = digest(JSON.stringify([trust.appId,trust.environment,trust.backendContract,trust.artifactBaseUrl,trust.keyId,trust.publicJwk.x,trust.publicJwk.y]));
+    const pinned = trust.trustedKeys?.map(entry => [entry.keyId,entry.publicJwk.x,entry.publicJwk.y]);
+    const legacy = entry => digest(JSON.stringify([trust.appId,trust.environment,trust.backendContract,trust.artifactBaseUrl,entry.keyId,entry.publicJwk.x,entry.publicJwk.y]));
+    const fingerprint = pinned ? digest(JSON.stringify([trust.appId,trust.environment,trust.backendContract,trust.artifactBaseUrl,pinned])) : legacy(trust);
     const prior = db.prepare('SELECT fingerprint FROM settings WHERE id=1').get();
-    if (prior && prior.fingerprint !== fingerprint) throw Error('Data directory trust differs from configured trust; do not reuse another app or key state');
+    if (prior && prior.fingerprint !== fingerprint) {
+      // Explicitly pre-pinning a next key upgrades only a database owned by the
+      // first trusted key. Switching the active publisher afterward is stable.
+      if (!trust.trustedKeys || prior.fingerprint !== legacy(trust.trustedKeys[0]))
+        throw Error('Data directory trust differs from configured trust; do not reuse another app or key state');
+      db.prepare('UPDATE settings SET fingerprint=? WHERE id=1 AND fingerprint=?').run(fingerprint,prior.fingerprint);
+    }
     db.prepare('INSERT OR IGNORE INTO settings VALUES(1,?)').run(fingerprint);
     const pathFor = path => join(files,digest(path));
     const transaction = fn => { db.exec('BEGIN IMMEDIATE'); try { const value = fn(); db.exec('COMMIT'); return value; } catch(error) { db.exec('ROLLBACK'); throw error; } };

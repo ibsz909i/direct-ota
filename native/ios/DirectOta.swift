@@ -50,7 +50,8 @@ final class DirectOtaController {
         let keyId = host?.getConfig().getString("directOtaKeyId", "") ?? ""
         let x = host?.getConfig().getString("directOtaKeyX", "") ?? ""
         let y = host?.getConfig().getString("directOtaKeyY", "") ?? ""
-        return keyId.range(of: "^[A-Za-z0-9_-]{1,80}$", options: .regularExpression) != nil && (try? DirectOtaProtocol.base64url(x).count) == 32 && (try? DirectOtaProtocol.base64url(y).count) == 32
+        let ring = host?.getConfig().getString("directOtaTrustedKeys", "") ?? ""
+        return (try? DirectOtaProtocol.signingKeys(ring, keyId: keyId, x: x, y: y)) != nil
     }
     private var folder: URL { FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("direct-ota") }
     private var installation: String {
@@ -68,12 +69,20 @@ final class DirectOtaController {
             }
         }
         monitor.start(queue: DispatchQueue(label: "direct-ota.network"))
-        if let saved = defaults.string(forKey: key + ".manifest"), let parsed = try? verify(saved) { token = saved; manifest = parsed }
+        if let saved = defaults.string(forKey: key + ".manifest"), let parsed = try? verify(saved),
+           let epoch = try? signingEpoch(saved), epoch >= defaults.integer(forKey: key + ".keyEpoch") {
+            token = saved; manifest = parsed
+        }
     }
     deinit { monitor.cancel(); transfer?.cancel(); readyTimer?.invalidate() }
     private func verify(_ value: String) throws -> DirectOtaManifest {
         guard let host, enabled else { throw DirectOtaFailure.invalid }
-        return try DirectOtaProtocol.verify(value, keyId: host.getConfig().getString("directOtaKeyId", "") ?? "", x: host.getConfig().getString("directOtaKeyX", "") ?? "", y: host.getConfig().getString("directOtaKeyY", "") ?? "", appId: appId, environment: environment, artifactBaseUrl: artifactBaseUrl, backendContract: backendContract, runtime: runtime, channel: channel, limits: limits)
+        return try DirectOtaProtocol.verify(value, keyId: host.getConfig().getString("directOtaKeyId", "") ?? "", x: host.getConfig().getString("directOtaKeyX", "") ?? "", y: host.getConfig().getString("directOtaKeyY", "") ?? "", appId: appId, environment: environment, artifactBaseUrl: artifactBaseUrl, backendContract: backendContract, runtime: runtime, channel: channel, limits: limits, trustedKeysJSON: host.getConfig().getString("directOtaTrustedKeys", "") ?? "")
+    }
+    private func signingEpoch(_ value: String) throws -> Int {
+        guard let host else { throw DirectOtaFailure.invalid }
+        let keys = try DirectOtaProtocol.signingKeys(host.getConfig().getString("directOtaTrustedKeys", "") ?? "", keyId: host.getConfig().getString("directOtaKeyId", "") ?? "", x: host.getConfig().getString("directOtaKeyX", "") ?? "", y: host.getConfig().getString("directOtaKeyY", "") ?? "")
+        return try DirectOtaProtocol.signerIndex(value, keys: keys)
     }
     private func bundleId(_ hash: String) -> String { "do" + String(hash.prefix(30)) }
     private var quarantine: [String] { defaults.stringArray(forKey: key + ".quarantine") ?? [] }
@@ -107,12 +116,16 @@ final class DirectOtaController {
     private func emit() { host?.notifyListeners("otaStateChange", data: state()) }
     func accept(_ value: String) throws {
         let m = try verify(value)
+        let epoch = try signingEpoch(value)
+        guard epoch >= defaults.integer(forKey: key + ".keyEpoch") else { throw DirectOtaFailure.replay }
         let highest = Int64(defaults.string(forKey: key + ".sequence") ?? "0") ?? 0
         guard m.sequence >= highest else { throw DirectOtaFailure.replay }
         if m.sequence == highest, let old = defaults.string(forKey: key + ".latest"), old != value { throw DirectOtaFailure.replay }
         // A malformed, incompatible or unsigned response can never introduce a required update.
         defaults.set(String(m.sequence), forKey: key + ".sequence")
         defaults.set(value, forKey: key + ".latest")
+        defaults.set(epoch, forKey: key + ".keyEpoch")
+        defaults.synchronize()
         if m.action == "withdraw" { clearRequirement(); return }
         guard let a = m.artifact else { throw DirectOtaFailure.invalid }
         if quarantine.contains(a.sha256) { throw DirectOtaFailure.quarantined }

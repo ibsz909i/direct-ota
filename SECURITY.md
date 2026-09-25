@@ -30,7 +30,7 @@ An app may add literal content markers in the public `direct-ota.config.json` sc
 
 ## Key loss and compromise
 
-If a publishing key is suspected compromised, immediately disable that publisher at the service and stop promotions. Preserve audit records, inspect channels, and issue a native release with new trust keys and a safe bundled app. An attacker who already has a signing key may have issued valid instructions; merely changing a server environment variable cannot revoke trust already pinned on every device.
+For a planned signer change, pre-pin the next public key in a native build and follow [the rotation procedure](docs/key-rotation.md). Once a device accepts a new-key instruction, it rejects older signing keys. If a publishing key is suspected compromised, immediately disable that publisher at the service and stop promotions. Preserve audit records, inspect channels, and issue a native release with fresh trust keys and a safe bundled app when urgent revocation is needed. An attacker who already has a signing key may have issued valid instructions; merely changing a server environment variable cannot revoke trust already pinned on every device.
 
 If keys are lost, recover from the encrypted backup. Without that backup, distribute a new native release with a new identity. Never add a signature bypass as a recovery mechanism.
 

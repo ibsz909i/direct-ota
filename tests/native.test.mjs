@@ -55,6 +55,15 @@ test('fingerprint tracks declared native bytes while generated files stay stable
   const larger={...config,limits:{archiveBytes:20971520,unpackedBytes:104857600,files:5000}};
   assert.equal(nativePluginConfig(larger,first,'internal').directOtaMaxArchiveBytes,20971520);
   assert.notEqual(fingerprintNative(fixture,larger),first);
+  const next=crypto.generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+  const nextKey={keyId:'synthetic-next',publicJwk:next.publicKey.export({format:'jwk'})};
+  const ring=[{keyId:config.keyId,publicJwk:config.publicJwk},nextKey];
+  const pinned={...config,trustedKeys:ring};
+  const rotated={...pinned,keyId:nextKey.keyId,publicJwk:nextKey.publicJwk};
+  const pinnedRuntime=fingerprintNative(fixture,pinned);
+  assert.notEqual(pinnedRuntime,first);
+  assert.equal(fingerprintNative(fixture,rotated),pinnedRuntime);
+  assert.deepEqual(nativePluginConfig(rotated,pinnedRuntime),nativePluginConfig(pinned,pinnedRuntime));
   assert.equal(fingerprintNative(fixture,config),first);
   assert.notEqual(fingerprintNative(fixture,{...config,environment:'staging'}),first);
   writeNativeConfig(fixture,config,{channel:'production'});

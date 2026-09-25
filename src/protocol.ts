@@ -6,6 +6,8 @@ export interface OtaTrust {
   artifactBaseUrl: string;
   keyId: string;
   publicJwk: JsonWebKey;
+  /** Native-pinned keys in ascending trust epoch; active publisher is keyId. */
+  trustedKeys?: Array<{keyId: string; publicJwk: JsonWebKey}>;
   backendContract: number;
   limits?: OtaLimits;
 }
@@ -28,12 +30,42 @@ export function validateTrust(trust: OtaTrust): OtaTrust {
       !/^[A-Za-z0-9_-]{1,40}$/.test(trust.environment) ||
       !Number.isSafeInteger(trust.backendContract) || trust.backendContract < 1 ||
       !/^[A-Za-z0-9_-]{1,80}$/.test(trust.keyId) ||
-      trust.publicJwk.kty !== 'EC' || trust.publicJwk.crv !== 'P-256' || trust.publicJwk.d !== undefined) throw new Error('Invalid OTA trust configuration');
+      !validSigningJwk(trust.publicJwk)) throw new Error('Invalid OTA trust configuration');
+  if (trust.trustedKeys !== undefined) {
+    if (!Array.isArray(trust.trustedKeys) || trust.trustedKeys.length < 2 || trust.trustedKeys.length > 4) throw new Error('Invalid OTA signing key ring');
+    const seen = new Set<string>();
+    for (const entry of trust.trustedKeys) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+          Object.keys(entry).sort().join(',') !== 'keyId,publicJwk' ||
+          typeof entry.keyId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(entry.keyId) ||
+          seen.has(entry.keyId) || !validSigningJwk(entry.publicJwk)) throw new Error('Invalid OTA signing key ring');
+      seen.add(entry.keyId);
+    }
+    const active = trust.trustedKeys.find(entry => entry.keyId === trust.keyId);
+    if (!active || active.publicJwk.x !== trust.publicJwk.x || active.publicJwk.y !== trust.publicJwk.y)
+      throw new Error('Active publisher is not pinned in the key ring');
+  }
   const u = new URL(trust.artifactBaseUrl);
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash ||
       u.href !== trust.artifactBaseUrl || trust.artifactBaseUrl.endsWith('/') ||
       !/^\/[A-Za-z0-9/_-]*$/.test(u.pathname)) throw new Error('Artifact base must be a canonical HTTPS URL without a trailing slash');
   return trust;
+}
+function validSigningJwk(key: JsonWebKey | undefined): boolean {
+  const kid = (key as JsonWebKey & {kid?: unknown} | undefined)?.kid;
+  if (!key || typeof key !== 'object' || Array.isArray(key) ||
+      key.kty !== 'EC' || key.crv !== 'P-256' ||
+      Object.keys(key).some(field => !['kty','crv','x','y','alg','use','key_ops','kid','ext'].includes(field)) ||
+      (key.alg !== undefined && key.alg !== 'ES256') ||
+      (key.use !== undefined && key.use !== 'sig') ||
+      (key.key_ops !== undefined && (!Array.isArray(key.key_ops) || key.key_ops.length !== 1 || key.key_ops[0] !== 'verify')) ||
+      (key.ext !== undefined && typeof key.ext !== 'boolean') ||
+      (kid !== undefined && (typeof kid !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(kid)))) return false;
+  for (const coordinate of [key.x,key.y]) {
+    if (typeof coordinate !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(coordinate)) return false;
+    try { if (decodeSegment(coordinate).length !== 32) return false; } catch { return false; }
+  }
+  return true;
 }
 export const OTA_MAX_MANIFEST_LENGTH = 8192;
 export const OTA_MAX_ARCHIVE_BYTES = OTA_DEFAULT_LIMITS.archiveBytes;
@@ -322,11 +354,16 @@ export async function verifyManifest(
   compatibility: OtaCompatibility = {},
   now = Date.now(),
 ): Promise<OtaManifest> {
+  validateTrust(trust);
+  const keyId = signedKeyId(compact, OTA_MAX_MANIFEST_LENGTH);
+  const selected = trust.trustedKeys?.find(entry => entry.keyId === keyId) ??
+    (keyId === trust.keyId ? {keyId: trust.keyId, publicJwk: trust.publicJwk} : undefined);
+  if (!selected) invalid();
   return validateManifest(
     await verifyJws(
       compact,
-      trust.publicJwk,
-      trust.keyId,
+      selected.publicJwk,
+      selected.keyId,
       "DIRECT-OTA",
       OTA_MAX_MANIFEST_LENGTH,
     ),
@@ -334,6 +371,17 @@ export async function verifyManifest(
     compatibility,
     now,
   );
+}
+/** Extract an untrusted key ID only to select a pinned verification key. */
+export function signedKeyId(compact: string, limit = OTA_MAX_MANIFEST_LENGTH): string {
+  if (typeof compact !== 'string' || compact.length > limit || !/^[A-Za-z0-9._-]+$/.test(compact)) invalid();
+  const parts = compact.split('.');
+  if (parts.length !== 3) invalid();
+  const header = object(JSON.parse(new TextDecoder('utf-8', {fatal:true,ignoreBOM:false}).decode(decodeSegment(parts[0]))));
+  exactKeys(header, ['alg','typ','kid']);
+  if (header.alg !== 'ES256' || header.typ !== 'DIRECT-OTA' ||
+      typeof header.kid !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(header.kid)) invalid();
+  return header.kid;
 }
 export async function verifyPublishCommand(
   compact: string,

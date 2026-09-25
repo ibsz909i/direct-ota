@@ -4,7 +4,7 @@ import crypto, {createPublicKey} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-import {effectiveLimits} from '../dist/protocol.js';
+import {effectiveLimits, validateTrust} from '../dist/protocol.js';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const updaterVersion = '8.51.25';
@@ -26,6 +26,7 @@ function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function writeJson(file, value) { fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n'); }
 function requireConfig(config) {
   effectiveLimits(config);
+  validateTrust(config);
   if (!config || config.schema !== 1 || typeof config.appId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(config.appId) ||
       typeof config.environment !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(config.environment) || !Number.isSafeInteger(config.backendContract) || config.backendContract < 1 || config.backendContract > 2147483647 ||
       typeof config.artifactBaseUrl !== 'string' || typeof config.keyId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(config.keyId) ||
@@ -36,8 +37,10 @@ function requireConfig(config) {
   if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || url.hash ||
       url.href !== config.artifactBaseUrl || config.artifactBaseUrl.endsWith('/') ||
       !/^\/[A-Za-z0-9/_-]*$/.test(url.pathname)) throw Error('Artifact base must be a pinned HTTPS URL without a trailing slash');
-  for (const coordinate of [config.publicJwk.x, config.publicJwk.y]) {
-    if (!/^[A-Za-z0-9_-]{43}$/.test(coordinate) || Buffer.from(coordinate, 'base64url').length !== 32) throw Error('Invalid P-256 public key coordinates');
+  for (const entry of config.trustedKeys ?? [{keyId:config.keyId,publicJwk:config.publicJwk}]) {
+    for (const coordinate of [entry.publicJwk.x, entry.publicJwk.y]) {
+      if (!/^[A-Za-z0-9_-]{43}$/.test(coordinate) || Buffer.from(coordinate, 'base64url').length !== 32) throw Error('Invalid P-256 public key coordinates');
+    }
   }
   const bundle = createPublicKey(config.bundlePublicKey);
   if (bundle.asymmetricKeyType !== 'rsa' || bundle.asymmetricKeyDetails?.modulusLength !== 2048) throw Error('Bundle key must be RSA-2048');
@@ -181,8 +184,9 @@ export function nativeSnapshot(projectRoot, config) {
     environment: config.environment,
     backendContract: config.backendContract,
     artifactBaseUrl: config.artifactBaseUrl,
-    keyId: config.keyId,
-    publicJwk: {kty: config.publicJwk.kty, crv: config.publicJwk.crv, x: config.publicJwk.x, y: config.publicJwk.y},
+    signingTrust: config.trustedKeys ? config.trustedKeys.map(entry => ({keyId:entry.keyId,
+      x:entry.publicJwk.x,y:entry.publicJwk.y})) : [{keyId:config.keyId,
+      x:config.publicJwk.x,y:config.publicJwk.y}],
     bundlePublicKey: config.bundlePublicKey,
     limits: config.limits,
   });
@@ -233,6 +237,7 @@ export function nativePluginConfig(config, runtime, channel = 'production') {
   if (!['internal', 'production'].includes(channel)) throw Error('Invalid Direct OTA channel');
   if (typeof runtime !== 'string' || !/^[0-9a-f]{64}$/.test(runtime)) throw Error('Invalid Direct OTA runtime');
   const limits = effectiveLimits(config);
+  const pinned = config.trustedKeys ?? [{keyId:config.keyId,publicJwk:config.publicJwk}];
   return {
     autoUpdate: 'off', updateUrl: '', statsUrl: '', channelUrl: '',
     allowModifyUrl: false, autoDeletePrevious: false, autoDeleteFailed: false,
@@ -243,7 +248,9 @@ export function nativePluginConfig(config, runtime, channel = 'production') {
     directOtaAppId: config.appId, directOtaEnvironment: config.environment,
     directOtaArtifactBaseUrl: config.artifactBaseUrl, directOtaBackendContract: config.backendContract,
     directOtaRuntime: runtime, directOtaChannel: channel,
-    directOtaKeyId: config.keyId, directOtaKeyX: config.publicJwk.x, directOtaKeyY: config.publicJwk.y,
+    directOtaKeyId: pinned[0].keyId, directOtaKeyX: pinned[0].publicJwk.x, directOtaKeyY: pinned[0].publicJwk.y,
+    ...(config.trustedKeys ? {directOtaTrustedKeys:JSON.stringify(pinned.map(entry => ({keyId:entry.keyId,
+      x:entry.publicJwk.x,y:entry.publicJwk.y})))} : {}),
     directOtaMaxArchiveBytes: limits.archiveBytes, directOtaMaxUnpackedBytes: limits.unpackedBytes,
     directOtaMaxFiles: limits.files,
   };

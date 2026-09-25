@@ -53,7 +53,7 @@ export async function finishSetup(root, options = {}, dependencies = {}) {
   if (host.file === 'capacitor.config.ts' && !isDeepStrictEqual(host.plugin, plugin))
     await mergeTypeScriptPlugin(root, plugin, {dryRun:true});
   if (host.file === 'capacitor.config.json' && host.plugin && !isDeepStrictEqual(host.plugin, plugin) &&
-      (host.plugin.directOtaAppId !== config.appId || host.plugin.directOtaKeyId !== config.keyId ||
+      (host.plugin.directOtaAppId !== config.appId || host.plugin.directOtaKeyId !== (config.trustedKeys?.[0]?.keyId ?? config.keyId) ||
        host.plugin.directOtaArtifactBaseUrl !== config.artifactBaseUrl))
     throw Error('Existing CapacitorUpdater settings belong to another integration; review manually');
 

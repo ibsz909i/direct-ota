@@ -98,7 +98,7 @@ export async function diagnoseProject(root, config, options = {}, remoteCheck) {
     }
     if (isDeepStrictEqual(host.plugin, expected)) return `${host.file} matches`;
     if (host.plugin && (host.plugin.directOtaAppId !== config.appId ||
-        host.plugin.directOtaKeyId !== config.keyId ||
+        host.plugin.directOtaKeyId !== (config.trustedKeys?.[0]?.keyId ?? config.keyId) ||
         host.plugin.directOtaArtifactBaseUrl !== config.artifactBaseUrl))
       throw Error('Source CapacitorUpdater belongs to another integration; review before syncing');
     if (!options.fix) return {warning:`${host.file} differs; run doctor --fix for JSON or merge settings manually before the next sync`};

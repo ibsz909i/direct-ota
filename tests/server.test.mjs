@@ -78,6 +78,26 @@ test('admission and publisher disablement apply before publication work',async t
  const f=await fixture(t,{limits:{requestsPerMinute:1}});assert.equal((await f.post('/check',f.selector)).status,200);assert.equal((await f.post('/publish',{command:'unsigned'})).status,429);
  const disabled=await fixture(t,{publisherEnabled:false});assert.equal((await disabled.command('status',disabled.selector)).status,403);
 });
+test('existing Node state accepts a pre-pinned next key and active publisher switch',async t=>{
+ const f=await fixture(t);
+ f.server.closeAllConnections();f.server.close();await once(f.server,'close');
+ const next=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+ const nextJwk=next.publicKey.export({format:'jwk'});
+ const trustedKeys=[{keyId:f.trust.keyId,publicJwk:f.trust.publicJwk},{keyId:'synthetic-next',publicJwk:nextJwk}];
+ const pinned={...f.trust,trustedKeys};
+ const preloaded=await createOtaServer({trust:pinned,dataDir:f.dataDir});
+ preloaded.listen(0,'127.0.0.1');await once(preloaded,'listening');
+ preloaded.closeAllConnections();preloaded.close();await once(preloaded,'close');
+ const rotated={...pinned,keyId:'synthetic-next',publicJwk:nextJwk};
+ const active=await createOtaServer({trust:rotated,dataDir:f.dataDir});
+ active.listen(0,'127.0.0.1');await once(active,'listening');
+ t.after(async()=>{active.closeAllConnections();active.close();await once(active,'close');});
+ const origin='http://127.0.0.1:'+active.address().port;
+ const signed=(privateKey,keyId)=>{const iat=Math.floor(Date.now()/1000);return signJws({protocol:1,appId:rotated.appId,aud:'direct-ota-publish',action:'status',iat,exp:iat+60,nonce:randomUUID(),body:f.selector},privateKey,keyId,'DIRECT-OTA-PUBLISH');};
+ const send=command=>fetch(origin+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command})});
+ assert.equal((await send(signed(f.keys.privateKey,f.trust.keyId))).status,401);
+ assert.equal((await send(signed(next.privateKey,'synthetic-next'))).status,200);
+});
 test('reservations coalesce, storage stays bounded, and state survives a restart',async t=>{
  const f=await fixture(t),r=f.release();
  const results=await Promise.all(Array.from({length:4},()=>f.command('reserve',{manifest:r.signed})));

@@ -13,9 +13,21 @@ let runtime=String(repeating:"a",count:64)
 let header=b64(try JSONSerialization.data(withJSONObject:["alg":"ES256","typ":"DIRECT-OTA","kid":"test"]))
 var value:[String:Any]=["protocol":1,"appId":"app.example.demo","environment":"test","platform":"ios","channel":"production","runtime":runtime,"sequence":1,"backendContract":2,"rollout":100,"action":"withdraw","releaseId":UUID().uuidString.lowercased(),"version":"1.12.0","issuedAt":"2026-09-24T00:00:00Z"]
 func sign(_ value:[String:Any])throws->String {let prefix=header+"."+b64(try JSONSerialization.data(withJSONObject:value));return prefix+"."+b64(try key.signature(for:Data(prefix.utf8)).rawRepresentation)}
-func verify(_ token:String, limits: DirectOtaLimits = DirectOtaLimits(archiveBytes: 5242880, unpackedBytes: 26214400, files: 1000))throws->DirectOtaManifest {try DirectOtaProtocol.verify(token,keyId:"test",x:b64(raw.subdata(in:1..<33)),y:b64(raw.subdata(in:33..<65)),appId:"app.example.demo",environment:"test",artifactBaseUrl:"https://example.invalid/artifacts",backendContract:2,runtime:runtime,channel:"production",limits:limits)}
+func verify(_ token:String, limits: DirectOtaLimits = DirectOtaLimits(archiveBytes: 5242880, unpackedBytes: 26214400, files: 1000), ring:String? = nil)throws->DirectOtaManifest {try DirectOtaProtocol.verify(token,keyId:"test",x:b64(raw.subdata(in:1..<33)),y:b64(raw.subdata(in:33..<65)),appId:"app.example.demo",environment:"test",artifactBaseUrl:"https://example.invalid/artifacts",backendContract:2,runtime:runtime,channel:"production",limits:limits,trustedKeysJSON:ring)}
 let signed=try sign(value)
 require(try verify(signed).sequence == 1,"valid signed manifest")
+let next=P256.Signing.PrivateKey(), nextRaw=next.publicKey.x963Representation
+let ring=String(data:try JSONSerialization.data(withJSONObject:[
+    ["keyId":"test","x":b64(raw.subdata(in:1..<33)),"y":b64(raw.subdata(in:33..<65))],
+    ["keyId":"next","x":b64(nextRaw.subdata(in:1..<33)),"y":b64(nextRaw.subdata(in:33..<65))]
+]),encoding:.utf8)!
+let nextHeader=b64(try JSONSerialization.data(withJSONObject:["alg":"ES256","typ":"DIRECT-OTA","kid":"next"]))
+let nextPrefix=nextHeader+"."+b64(try JSONSerialization.data(withJSONObject:value))
+let nextSigned=nextPrefix+"."+b64(try next.signature(for:Data(nextPrefix.utf8)).rawRepresentation)
+require(try verify(nextSigned,ring:ring).sequence == 1,"next pinned key")
+require(try DirectOtaProtocol.signerIndex(nextSigned,keys:DirectOtaProtocol.signingKeys(ring,keyId:"test",x:b64(raw.subdata(in:1..<33)),y:b64(raw.subdata(in:33..<65)))) == 1,"monotonic key epoch")
+require((try? verify(nextSigned)) == nil,"next key requires native pinning")
+require((try? verify(signed,ring:ring.replacingOccurrences(of:"next",with:"test"))) == nil,"duplicate signing key")
 do {_ = try verify(signed+"x");fatalError("accepted bad signature")} catch {}
 value["runtime"]=String(repeating:"b",count:64)
 do {_ = try verify(sign(value));fatalError("accepted incompatible runtime")} catch {}

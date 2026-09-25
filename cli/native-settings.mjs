@@ -58,7 +58,7 @@ export async function mergeJsonPlugin(root, expected, config) {
   const current = document.plugins.CapacitorUpdater;
   if (isDeepStrictEqual(current, expected)) return false;
   if (current !== undefined && (!current || typeof current !== 'object' || Array.isArray(current) ||
-      current.directOtaAppId !== config.appId || current.directOtaKeyId !== config.keyId ||
+      current.directOtaAppId !== config.appId || current.directOtaKeyId !== (config.trustedKeys?.[0]?.keyId ?? config.keyId) ||
       current.directOtaArtifactBaseUrl !== config.artifactBaseUrl))
     throw Error('Existing CapacitorUpdater settings belong to another integration; review manually');
   document.plugins.CapacitorUpdater = expected;

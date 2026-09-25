@@ -42,6 +42,7 @@ export function validateConfig(config) {
   if (config.schema !== 1) throw new Error('Unsupported configuration schema');
   validatePublicJwk(config.publicJwk);
   validateTrust(config);
+  for (const entry of config.trustedKeys ?? []) validatePublicJwk(entry.publicJwk);
   effectiveLimits(config);
   for (const key of ['checkUrl', 'publishUrl', ...(config.eventsUrl ? ['eventsUrl'] : [])]) httpsUrl(config[key]);
   if (!Array.isArray(config.uploadOrigins) || !config.uploadOrigins.length || config.uploadOrigins.some(x => httpsUrl(x + '/').origin !== x)) throw new Error('Specify exact HTTPS upload origins');
@@ -97,7 +98,9 @@ export async function initProject(root, {appId, baseUrl, provider = 'node', webD
   return config;
 }
 export async function readIdentity(root, config, filename) {
-  const path = resolve(root, filename || '.direct-ota/identity.json');
+  const defaultFile = config.trustedKeys && config.keyId !== config.trustedKeys[0].keyId
+    ? `.direct-ota/identity-${config.keyId}.json` : '.direct-ota/identity.json';
+  const path = resolve(root, filename || defaultFile);
   const stat = await lstat(path);
   if (!stat.isFile() || stat.isSymbolicLink() || (process.platform !== 'win32' && (stat.mode & 0o077))) throw new Error('Identity must be a private regular file (chmod 600)');
   const identity = JSON.parse(await readFile(path, 'utf8'));

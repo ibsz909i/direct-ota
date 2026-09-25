@@ -16,6 +16,8 @@ direct-ota deploy --provider firebase --target PROJECT_ID --bucket BUCKET [--pla
 direct-ota export-provider --provider node|supabase|cloudflare|firebase --out ./ota-service
 direct-ota create-provider --name my-backend --out ./ota-provider
 direct-ota native --channel internal|production
+direct-ota key-stage  (pin a next signer, then ship a native store build)
+direct-ota key-activate  (switch publisher after that native build is verified)
 direct-ota patch
 direct-ota doctor [--fix] [--remote --platform ios|android] [--channel internal]
 direct-ota test-provider [--write]  (write mode uses a synthetic runtime; use an isolated service)
@@ -101,7 +103,13 @@ try {
     console.log('Provider files exported. Follow its README to deploy with your public trust configuration.');
   } else {
     const config = await readConfig(root);
-    if (action === 'native' || action === 'patch' || action === 'doctor') {
+    if (action === 'key-stage' || action === 'key-activate') {
+      const keys=await import('./keys.mjs');
+      const result=action==='key-stage' ? await keys.stageSigningKey(root,config) : await keys.activateSigningKey(root,config);
+      console.log(action==='key-stage'
+        ? `Staged ${result.keyId}. Sync, rebuild, and verify a store app with the pinned key ring before activation. Private identity: ${result.identityFile}`
+        : `Activated ${result.keyId} locally. Update the provider's active public trust and verify a signed internal release before production promotion.`);
+    } else if (action === 'native' || action === 'patch' || action === 'doctor') {
       const native = await import('./native.mjs');
       if (action === 'patch') {
         native.verifyCapacitorPlugins(root);

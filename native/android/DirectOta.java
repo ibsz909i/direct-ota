@@ -65,9 +65,7 @@ final class DirectOta {
                 && uri.getScheme().equals("https") && uri.getHost() != null && uri.getRawUserInfo() == null
                 && uri.getRawQuery() == null && uri.getRawFragment() == null && !artifactBaseUrl().endsWith("/")
                 && uri.toASCIIString().equals(artifactBaseUrl()) && uri.getRawPath().matches("/[A-Za-z0-9/_-]*")
-                && host.getConfig().getString("directOtaKeyId", "").matches("[A-Za-z0-9_-]{1,80}")
-                && b64(host.getConfig().getString("directOtaKeyX", "")).length == 32
-                && b64(host.getConfig().getString("directOtaKeyY", "")).length == 32;
+                && signingKeys().length() >= 1;
         } catch(Exception e) { return false; }
     }
     private String bundleId(String hash) { return "do" + hash.substring(0,30); }
@@ -75,7 +73,7 @@ final class DirectOta {
         this.host=host; prefs=host.getContext().getSharedPreferences("direct-ota",Context.MODE_PRIVATE);
         if(!prefs.contains("installation")) prefs.edit().putString("installation",UUID.randomUUID().toString()).commit();
         String saved=prefs.getString(prefix()+".manifest",null);
-        if(saved!=null) try { manifest=verify(saved);token=saved; } catch(Exception ignored) {}
+        if(saved!=null) try { JSONObject parsed=verify(saved);if(signingEpoch(saved)>=prefs.getInt(prefix()+".keyEpoch",0)){manifest=parsed;token=saved;} } catch(Exception ignored) {}
         connectivity=(ConnectivityManager)host.getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
         callback=new ConnectivityManager.NetworkCallback(){
             @Override public void onLost(Network network){ networkChanged(); }
@@ -109,6 +107,29 @@ final class DirectOta {
         require(value.equals(Base64.encodeToString(decoded,Base64.URL_SAFE|Base64.NO_WRAP|Base64.NO_PADDING)));
         return decoded;
     }
+    private JSONArray signingKeys()throws Exception{
+        String id=host.getConfig().getString("directOtaKeyId",""),x=host.getConfig().getString("directOtaKeyX",""),y=host.getConfig().getString("directOtaKeyY","");
+        require(id.matches("[A-Za-z0-9_-]{1,80}")&&b64(x).length==32&&b64(y).length==32);
+        String raw=host.getConfig().getString("directOtaTrustedKeys","");
+        if(raw.isEmpty())return new JSONArray().put(new JSONObject().put("keyId",id).put("x",x).put("y",y));
+        require(raw.getBytes(StandardCharsets.UTF_8).length<=2048);
+        JSONArray keys=new JSONArray(raw);require(keys.length()>=2&&keys.length()<=4);
+        Set<String> seen=new HashSet<>();
+        for(int i=0;i<keys.length();i++){
+            JSONObject item=keys.getJSONObject(i);require(exactKeys(item,"keyId","x","y"));
+            String kid=item.getString("keyId");require(kid.matches("[A-Za-z0-9_-]{1,80}")&&seen.add(kid)&&b64(item.getString("x")).length==32&&b64(item.getString("y")).length==32);
+        }
+        JSONObject first=keys.getJSONObject(0);
+        require(first.getString("keyId").equals(id)&&first.getString("x").equals(x)&&first.getString("y").equals(y));
+        return keys;
+    }
+    private int signingEpoch(String signed)throws Exception{
+        String[] parts=signed.split("\\.",-1);require(parts.length==3);
+        JSONObject header=new JSONObject(new String(b64(parts[0]),StandardCharsets.UTF_8));
+        String id=header.getString("kid");JSONArray keys=signingKeys();
+        for(int i=0;i<keys.length();i++)if(keys.getJSONObject(i).getString("keyId").equals(id))return i;
+        throw new IOException("OTA_INVALID");
+    }
     private static boolean exactKeys(JSONObject object,String... fields){
         Set<String> actual=new HashSet<>();Iterator<String> keys=object.keys();while(keys.hasNext())actual.add(keys.next());
         return actual.equals(new HashSet<>(Arrays.asList(fields)));
@@ -125,10 +146,11 @@ final class DirectOta {
         require(enabled() && signed.length()<=8192);
         String[] parts=signed.split("\\.",-1);require(parts.length==3);
         JSONObject h=new JSONObject(new String(b64(parts[0]),StandardCharsets.UTF_8));
-        require(exactKeys(h,"alg","typ","kid")&&h.optString("alg").equals("ES256")&&h.optString("typ").equals("DIRECT-OTA")&&h.optString("kid").equals(host.getConfig().getString("directOtaKeyId","")));
+        require(exactKeys(h,"alg","typ","kid")&&h.optString("alg").equals("ES256")&&h.optString("typ").equals("DIRECT-OTA"));
+        JSONObject selected=signingKeys().getJSONObject(signingEpoch(signed));
         AlgorithmParameters parameters=AlgorithmParameters.getInstance("EC");parameters.init(new ECGenParameterSpec("secp256r1"));
         ECParameterSpec spec=parameters.getParameterSpec(ECParameterSpec.class);
-        ECPoint point=new ECPoint(new BigInteger(1,b64(host.getConfig().getString("directOtaKeyX",""))),new BigInteger(1,b64(host.getConfig().getString("directOtaKeyY",""))));
+        ECPoint point=new ECPoint(new BigInteger(1,b64(selected.getString("x"))),new BigInteger(1,b64(selected.getString("y"))));
         PublicKey key=KeyFactory.getInstance("EC").generatePublic(new ECPublicKeySpec(point,spec));
         Signature verifier=Signature.getInstance("SHA256withECDSA");verifier.initVerify(key);verifier.update((parts[0]+"."+parts[1]).getBytes(StandardCharsets.UTF_8));require(verifier.verify(derSignature(b64(parts[2]))));
         JSONObject m=new JSONObject(new String(b64(parts[1]),StandardCharsets.UTF_8));
@@ -172,8 +194,9 @@ final class DirectOta {
     private void emit(){main.post(()->host.directOtaEmit(state()));}
     synchronized void accept(String signed)throws Exception{
         JSONObject m=verify(signed);long sequence=m.getLong("sequence"),highest=prefs.getLong(prefix()+".sequence",0);
+        int epoch=signingEpoch(signed);if(epoch<prefs.getInt(prefix()+".keyEpoch",0))throw new IOException("OTA_REPLAY");
         if(sequence<highest || (sequence==highest&&!signed.equals(prefs.getString(prefix()+".latest",signed))))throw new IOException("OTA_REPLAY");
-        prefs.edit().putLong(prefix()+".sequence",sequence).putString(prefix()+".latest",signed).commit();
+        prefs.edit().putLong(prefix()+".sequence",sequence).putString(prefix()+".latest",signed).putInt(prefix()+".keyEpoch",epoch).commit();
         if(m.getString("action").equals("withdraw")){clearRequirement();return;}
         String hash=m.getJSONObject("artifact").getString("sha256");if(prefs.getBoolean(prefix()+".failed."+hash,false))throw new IOException("OTA_QUARANTINED");
         byte[] digest=MessageDigest.getInstance("SHA-256").digest(prefs.getString("installation","").getBytes(StandardCharsets.UTF_8));int cohort=(((digest[0]&255)*256)+(digest[1]&255))%10000;

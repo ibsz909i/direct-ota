@@ -16,6 +16,22 @@ test('signed manifest binds identity, environment, runtime and purpose', async (
  const other=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
  await assert.rejects(verifyManifest(signJws(m,other.privateKey,trust.keyId),trust));
 });
+test('a native-pinned key ring accepts old and next release keys but only the active publisher', async () => {
+ const next=generateKeyPairSync('ec',{namedCurve:'prime256v1'});
+ const nextJwk=next.publicKey.export({format:'jwk'});
+ const keys=[{keyId:'test',publicJwk:trust.publicJwk},{keyId:'next',publicJwk:nextJwk}];
+ const rotated={...trust,keyId:'next',publicJwk:nextJwk,trustedKeys:keys};
+ const m=manifest();
+ assert.deepEqual(await verifyManifest(signJws(m,key.privateKey,'test'),rotated),m);
+ assert.deepEqual(await verifyManifest(signJws(m,next.privateKey,'next'),rotated),m);
+ await assert.rejects(verifyManifest(signJws(m,key.privateKey,'unknown'),rotated));
+ const iat=Math.floor(Date.now()/1000);
+ const command={protocol:1,appId:trust.appId,aud:'direct-ota-publish',action:'status',iat,exp:iat+60,nonce:randomUUID(),body:{}};
+ await assert.rejects(verifyPublishCommand(signJws(command,key.privateKey,'test','DIRECT-OTA-PUBLISH'),rotated));
+ await verifyPublishCommand(signJws(command,next.privateKey,'next','DIRECT-OTA-PUBLISH'),rotated);
+ assert.throws(()=>validateTrust({...rotated,trustedKeys:[keys[0],keys[0]]}));
+ assert.throws(()=>validateTrust({...rotated,trustedKeys:[keys[0],{keyId:'next',publicJwk:next.privateKey.export({format:'jwk'})}]}));
+});
 test('rejects malformed fields, invalid dates and secret-bearing trust', () => {
  for (const values of [{sequence:0},{sequence:1.5},{rollout:101},{version:'01.0.0'},{issuedAt:'2026-02-30T00:00:00Z'},{extra:1}]) assert.throws(()=>validateManifest({...manifest(),...values},trust));
  for(const url of ['http://updates.example.invalid/artifacts','https://updates.example.invalid/artifacts/','https://user:pass@updates.example.invalid/artifacts','https://updates.example.invalid/artifacts?token=x']) assert.throws(()=>validateTrust({...trust,artifactBaseUrl:url}));
