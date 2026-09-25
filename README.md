@@ -1,4 +1,4 @@
-![Direct OTA: a signed web bundle moves from your infrastructure to installed iOS and Android apps.](assets/direct-ota.svg)
+![Direct OTA: a signed web bundle moves from your infrastructure to installed iOS and Android apps.](assets/direct-ota.png)
 
 # Direct OTA
 
