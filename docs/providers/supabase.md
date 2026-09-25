@@ -47,7 +47,15 @@ Back up release/channel/audit state and artifacts consistently. Preserve sequenc
 
 First run a synthetic internal release against the deployed project: unsigned publishing denied, anon/authenticated bucket writes denied, create-only token behavior, artifact hash and size enforcement, public GET/HEAD/Range delivery, concurrent promotion conflict, rollback and direct withdrawal. Check Supabase security advisors and examine the target project's actual policies. Then verify native download, activation and startup recovery on your intended devices.
 
-Local automated coverage includes cryptographic Edge handler tests, REST adapter request/digest tests, Deno type checking, and an isolated PostgreSQL harness applying the actual migration. The SQL harness bootstraps synthetic Storage tables and roles; it does not run the hosted Storage service or prove signed-upload/RLS interaction over Supabase HTTP.
+Local automated coverage includes cryptographic Edge handler tests, REST adapter request/digest tests, Deno type checking, an isolated PostgreSQL harness applying the actual migrations, and a disposable Docker Supabase Storage test. The SQL harness bootstraps synthetic Storage tables and roles. The Storage test exercises signed upload, create-only behavior, public byte ranges, and anonymous/authenticated write denial over local Supabase HTTP. It does not prove hosted gateway or Edge Function configuration.
+
+With Docker, the Supabase CLI, and `psql` installed, run both local provider checks in a disposable project:
+
+```sh
+npm run test:supabase-local
+```
+
+The command refuses occupied default Supabase ports, creates the stack from the exported provider, and removes its containers and files after success. It prints test results without printing the local demo keys. On failure it retains the temporary workspace path for diagnosis.
 
 To run that optional SQL harness against a disposable local PostgreSQL server:
 
@@ -55,4 +63,4 @@ To run that optional SQL harness against a disposable local PostgreSQL server:
 PGHOST=127.0.0.1 PGPORT=5432 PGDATABASE=postgres DIRECT_OTA_SQL_TEST=1 node --test tests/supabase-sql.test.mjs
 ```
 
-The local test owner needs permission to create/drop a temporary test database and create synthetic roles. `PSQL` can specify the psql executable. Each test database has a generated `direct_ota_test_` name and is removed afterward. The harness refuses a nonlocal host. Hosted deployment, Storage integration, security-advisor results, and device verification remain operator gates.
+The local test owner needs permission to create/drop a temporary test database and create synthetic roles. `PSQL` can specify the psql executable. Each test database has a generated `direct_ota_test_` name and is removed afterward. The harness refuses a nonlocal host. Hosted deployment, security-advisor results, and device verification remain operator gates.

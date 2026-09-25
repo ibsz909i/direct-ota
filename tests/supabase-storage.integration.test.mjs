@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {createHash, randomUUID} from 'node:crypto';
+import {createHash, createHmac, randomUUID} from 'node:crypto';
 
 test('local Supabase Storage enforces OTA writes and serves immutable public bytes', {
   skip: process.env.DIRECT_OTA_LOCAL_STORAGE_TEST !== '1',
@@ -14,6 +14,13 @@ test('local Supabase Storage enforces OTA writes and serves immutable public byt
   const base = status.API_URL, anon = status.ANON_KEY, service = status.SERVICE_ROLE_KEY;
   assert.match(base, /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.ok(anon && service);
+  const encodedJwt = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const issued = Math.floor(Date.now() / 1000);
+  const subject = randomUUID();
+  const input = encodedJwt({alg:'HS256',typ:'JWT'}) + '.' + encodedJwt({
+    aud:'authenticated',role:'authenticated',sub:subject,iat:issued,exp:issued + 300,
+  });
+  const customer = input + '.' + createHmac('sha256', status.JWT_SECRET).update(input).digest('base64url');
   const bytes = Buffer.from('Synthetic Direct OTA Storage integration payload');
   const hash = createHash('sha256').update(bytes).digest('hex');
   const path = `ios/${'a'.repeat(64)}/${randomUUID()}/${hash}.zip`;
@@ -26,6 +33,12 @@ test('local Supabase Storage enforces OTA writes and serves immutable public byt
   });
   await anonymousWrite.body?.cancel();
   assert.ok([400,401,403].includes(anonymousWrite.status), `anonymous upload returned ${anonymousWrite.status}`);
+  const customerHeaders = {apikey:anon, Authorization:`Bearer ${customer}`};
+  const customerWrite = await fetch(objectUrl, {
+    method:'POST', headers:{...customerHeaders,'Content-Type':'application/zip','x-upsert':'false'}, body:bytes,
+  });
+  await customerWrite.body?.cancel();
+  assert.ok([400,401,403].includes(customerWrite.status), `customer upload returned ${customerWrite.status}`);
   const signed = await fetch(`${base}/storage/v1/object/upload/sign/direct-ota/${encoded}`, {
     method:'POST', headers:{...headers(service),'Content-Type':'application/json'}, body:'{}',
   });
@@ -56,6 +69,9 @@ test('local Supabase Storage enforces OTA writes and serves immutable public byt
     const anonymousDelete = await fetch(objectUrl, {method:'DELETE',headers:headers(anon)});
     await anonymousDelete.body?.cancel();
     assert.ok(!anonymousDelete.ok, 'anonymous deletion succeeded');
+    const customerDelete = await fetch(objectUrl, {method:'DELETE',headers:customerHeaders});
+    await customerDelete.body?.cancel();
+    assert.ok(!customerDelete.ok, 'customer deletion succeeded');
   } finally {
     const cleanup = await fetch(objectUrl, {method:'DELETE',headers:headers(service)});
     await cleanup.body?.cancel();
