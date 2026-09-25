@@ -4,10 +4,10 @@
 
 Use a Capacitor 8 app with a working production web build. Direct OTA does not convert an arbitrary native app into a web app. Review [compatibility](compatibility.md) first.
 
-Install Node 24+ and Python 3 on the publishing machine. Download `direct-ota-0.7.1.tgz` from the [GitHub releases](https://github.com/ibsz909i/direct-ota/releases), then install it in your app:
+Install Node 24+ and Python 3 on the publishing machine. The latest attached package is `direct-ota-0.7.0.tgz` on the [GitHub releases](https://github.com/ibsz909i/direct-ota/releases) page. The [verified 0.7.1 source commit](https://github.com/ibsz909i/direct-ota/commit/8878bab04659250ffcf904e95b59d054e4a76ccc) has not been published as `direct-ota-0.7.1.tgz`; use that revision for a new Node deployment or wait for its release. For the currently downloadable package, install it in your app:
 
 ```sh
-npm install --save-exact ./direct-ota-0.7.1.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.7.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 ```
 
 The host app must list both native plugins directly so Capacitor discovers them. The package pins `@capgo/capacitor-updater` to 8.51.25; keep that exact version. An updater upgrade requires reviewing the native overlay and a new native build. Use Capacitor CLI 8 in the host project. If `capacitor.config` uses `includePlugins`, include both `@capgo/capacitor-updater` and `@capacitor/app` for each platform.

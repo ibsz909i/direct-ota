@@ -44,10 +44,10 @@ Pure Swift/Kotlin apps, React Native, Expo, Flutter, desktop apps, and arbitrary
 
 Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native builds, use the usual Xcode and Android toolchains.
 
-Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases). For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
+The latest attached tarball is `direct-ota-0.7.0.tgz` on the [releases page](https://github.com/ibsz909i/direct-ota/releases). The [verified 0.7.1 source commit](https://github.com/ibsz909i/direct-ota/commit/8878bab04659250ffcf904e95b59d054e4a76ccc) has not been attached as `direct-ota-0.7.1.tgz`. Its Node provider moves upload capabilities out of URLs, so use that source revision for a new Node deployment or wait for its release. For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
 
 ```sh
-npm install --save-exact ./direct-ota-0.7.1.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.7.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
 ```

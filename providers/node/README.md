@@ -3,7 +3,7 @@
 This template launches the provider from an installed `direct-ota` package. Node 24+ is required. Keep one process per persistent data directory and put an HTTPS reverse proxy in front of it.
 The export includes a `.gitignore` for local runtime state and credentials; keep it when committing the service template.
 
-1. Install the Direct OTA release tarball in this exported directory: `npm install /path/to/direct-ota-0.7.1.tgz`.
+1. Install a Direct OTA 0.7.1 tarball built from this source revision in the exported directory: `npm install /path/to/direct-ota-0.7.1.tgz`. This tarball is not yet attached to a public release; the older 0.7.0 Node service still places upload capabilities in URLs.
 2. Copy your **public** `direct-ota.config.json` here. Its artifact base must end in `/artifacts`, for example `https://updates.example.com/artifacts`. Do not copy `.direct-ota/identity.json` to the server.
 3. Choose a private persistent data directory. Set `OTA_DATA_DIR` and, if needed, `OTA_TRUST_FILE` to the public configuration path. The default data location is outside the source tree, beneath the service user's home at `.local/state/direct-ota/<appId>/<environment>`.
 4. Run `npm start`. The default listener is `127.0.0.1:8787`; `HOST` and `PORT` can override it. HTTPS terminates at your reverse proxy.
