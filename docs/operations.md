@@ -14,11 +14,15 @@ Supabase shares quotas and infrastructure with other workloads in the same proje
 
 Before a large rollout, measure your actual request rate, latency, failure rate, object-download throughput, cache behavior, and retry amplification. Use jittered/debounced client checks, immutable artifact caching, edge admission limits, and explicit rollout stages. Add no metadata request to a redemption or payment request chain.
 
+Use `node scripts/benchmark-check.mjs --project APP_DIR --platform ios --requests 100 --concurrency 10 --allow-remote true` for a bounded metadata sample against a configured isolated service. It verifies any returned signed manifest and reports p50/p95/p99, errors, throughput, and response bytes. Remote runs are capped at 500 requests and 100 concurrent clients; they do not download artifacts or simulate a 100,000-device fleet. Record the provider account, time, region, selected runtime, request budget, and provider-side request/D1/Storage metrics alongside the result. For fleet acceptance, use a separately approved load plan with realistic archives, retries, geographic mix, and a cost ceiling.
+
 A 3 MB archive × 100,000 downloads is roughly 300 GB before retries. There is no claim that a default deployment has passed a 100,000-device load test.
 
 ## Monitoring
 
 Monitor provider latency and errors, storage/egress use, upload/promote outcomes, startup failures, and device rollback reports when telemetry is configured. Device reports are untrusted evidence; they cannot authorize publishing or server-side rollback.
+
+Run `direct-ota doctor --remote --platform ios` and the Android equivalent from a monitored environment at a rate that fits the provider budget. Alert when a check fails, when provider 5xx responses rise, when p95 check latency or download failures exceed the service's measured baseline, or when storage/operation quotas approach 80%. Keep an independent HTTPS `POST /check` probe with a synthetic, noncustomer selector so loss of the publisher identity does not hide an outage. Record alerts with the channel sequence and release ID; never log signing keys, upload headers, signed upload URLs, or customer identifiers.
 
 On providers with optional event collection enabled, successful client events use a stable 1% sample derived on the device from its installation ID and release ID. The ID is never sent. Failure events are unsampled. Cloudflare and Firebase aggregate bounded download bytes, duration, retry count, and maximum observed duration without retaining raw event records or installation identifiers. The `health` response is a count and sum of untrusted reports, not a census of eligible installations or a verified ready rate. Optional rollout gates only stop a requested stage; they never authorize automatic advancement or rollback.
 
@@ -26,11 +30,15 @@ Do not collect account IDs, student information, transactions, tokens, or full u
 
 Stop further promotion on confirmed startup failures, signature/verification failures, or regressions in a core flow. Withdraw or issue a newer rollback instruction and investigate before advancing rollout.
 
+Before each 1→5→25→100 stage, record the current signed channel head, remote doctor result, device download/activation/ready evidence on both supported platforms, core-flow checks, provider errors/latency, and the operator's decision. A sampled `ready` count alone is insufficient. On an alert, stop promotion, compare the live `status` sequence with the recorded head, and use the retained compatible release for a new signed rollback instruction if installed users need recovery. A withdrawal only stops new offers.
+
 ## Backups and cleanup
 
 Back up metadata, audit state, and immutable artifacts consistently. Keep release directories for recent successful versions. Never garbage-collect an artifact still referenced by a supported channel or required for rollback. Clean abandoned uploads only after their capabilities expire and no reservation/promotion needs them.
 
 Test a restore in an isolated environment. Restoring an old database snapshot can regress sequence numbers; reconcile against published history before serving devices again.
+
+For the Node provider, stop the service and copy its SQLite state, immutable artifacts, and upload secret as one consistent unit. The automated restore smoke test in `tests/server.test.mjs` starts a copied stopped-state snapshot and verifies the signed head sequence and artifact bytes. For a hosted provider, export metadata/audit state and objects under the provider's consistency guarantees, restore to a new isolated service with the same public trust, and verify `status`, `doctor --remote`, rollback artifact delivery, and sequence monotonicity before changing any device-facing route. Record restore time and data loss against the service's chosen RTO/RPO; do not serve an older snapshot without reconciling channel history.
 
 ## Native upgrades
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHash,randomUUID} from 'node:crypto';
-import {mkdtemp,rm,stat,readdir,readFile} from 'node:fs/promises';
+import {mkdtemp,rm,stat,readdir,readFile,cp} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {once} from 'node:events';
@@ -118,4 +118,24 @@ test('reservations coalesce, storage stays bounded, and state survives a restart
   assert.deepEqual(await readFile(join(f.dataDir,'upload-secret')),secret);
  }finally{restarted.closeAllConnections();restarted.close();await once(restarted,'close');}
  const small=await fixture(t,{limits:{maxStorageBytes:1}});assert.equal((await small.command('reserve',{manifest:small.release().signed})).status,503);
+});
+test('a consistent stopped-state backup restores channel sequence and immutable bytes',async t=>{
+ const f=await fixture(t),r=f.release();await f.upload(r);
+ assert.equal((await f.command('promote',{manifest:r.signed,expectedSequence:0})).status,200);
+ f.server.closeAllConnections();f.server.close();await once(f.server,'close');
+ const backupRoot=await mkdtemp(join(tmpdir(),'direct-ota-restore-'));
+ t.after(()=>rm(backupRoot,{recursive:true,force:true}));
+ const restoredData=join(backupRoot,'data');await cp(f.dataDir,restoredData,{recursive:true});
+ const restored=await createOtaServer({trust:f.trust,dataDir:restoredData});
+ restored.listen(0,'127.0.0.1');await once(restored,'listening');
+ try{
+  const origin='http://127.0.0.1:'+restored.address().port;
+  const checked=await fetch(origin+'/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(f.selector)});
+  assert.equal((await checked.json()).manifest,r.signed);
+  const status=await fetch(origin+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({command:f.signedCommand('status',f.selector)})});
+  assert.equal((await status.json()).sequence,1);
+  const delivered=await fetch(origin+'/artifacts/'+r.manifest.artifact.path);
+  assert.deepEqual(Buffer.from(await delivered.arrayBuffer()),r.bytes);
+  assert.deepEqual(await readFile(join(restoredData,'upload-secret')),await readFile(join(f.dataDir,'upload-secret')));
+ }finally{restored.closeAllConnections();restored.close();await once(restored,'close');}
 });

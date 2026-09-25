@@ -2,6 +2,7 @@
 
 ## 0.7.1
 
+- Gate macOS checks and tag releases on fresh Capacitor iOS and Android consumer builds; add a bounded signed-metadata benchmark, an automated Node restore smoke test, and an operations runbook for alerts, staged review, and restore.
 - Carry the Node provider's short-lived upload capability in `X-Direct-OTA-Upload` instead of the request URL. Reject query-string uploads and cover missing, leaked, and malformed capability requests in the real HTTP tests. Existing publishing clients already support this header.
 - Refresh the Node deployment guide and package installation examples for the patch release.
 
