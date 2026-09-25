@@ -7,7 +7,7 @@ Direct OTA's native client supports Capacitor 8 on iOS and Android with `@capgo/
 ## Install and configure
 
 1. Create `direct-ota.config.json` with your own app ID, HTTPS check and artifact URLs, signing public JWK, bundle public key, and runtime inputs. Keep all private keys outside the app and public repository.
-2. In the host Capacitor 8 app, run `npm install --save-exact ./direct-ota-0.7.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8`. Ensure Capacitor CLI 8 is installed in the host project. Both native plugins must be direct app dependencies. If `includePlugins` is set globally or per platform, include both there too. Add the iOS and Android platforms and run an initial `npx cap sync`.
+2. In the host Capacitor 8 app, run `npm install --save-exact ./direct-ota-0.7.1.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8`. Ensure Capacitor CLI 8 is installed in the host project. Both native plugins must be direct app dependencies. If `includePlugins` is set globally or per platform, include both there too. Add the iOS and Android platforms and run an initial `npx cap sync`.
 3. Run `npx direct-ota native --channel internal` for an internal binary or `npx direct-ota native --channel production` for a production binary. This verifies the pristine Capgo source hash before patching and writes `direct-ota.runtime.json` and `direct-ota.capacitor.json`.
 4. Merge the generated plugin settings into `capacitor.config.ts`:
 

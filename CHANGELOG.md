@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+
+- Carry the Node provider's short-lived upload capability in `X-Direct-OTA-Upload` instead of the request URL. Reject query-string uploads and cover missing, leaked, and malformed capability requests in the real HTTP tests. Existing publishing clients already support this header.
+- Refresh the Node deployment guide and package installation examples for the patch release.
+
 ## 0.7.0
 
 - Allow explicitly pinned larger bundle ceilings across packaging, signed metadata admission, iOS, and Android; preserve the original defaults for existing apps.

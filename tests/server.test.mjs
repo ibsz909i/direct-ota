@@ -23,7 +23,7 @@ async function fixture(t,options={}){
   const manifest={protocol:1,appId:trust.appId,environment:trust.environment,backendContract:1,...selector,sequence,action:'release',rollout:100,releaseId,version:'1.0.1',issuedAt:new Date().toISOString(),artifact:{path,url:trust.artifactBaseUrl+'/'+path,sha256,bytes:bytes.length,unpackedBytes:100,files:1,checksum:Buffer.alloc(256).toString('base64'),sessionKey:Buffer.alloc(16).toString('base64')+':'+Buffer.alloc(256).toString('base64')},...overrides};
   return {manifest,signed:signJws(manifest,keys.privateKey,trust.keyId),bytes};
  }
- async function upload(candidate){const reservation=await command('reserve',{manifest:candidate.signed});assert.equal(reservation.status,200);const response=await reservation.json();if(!response.uploadRequired)return response;const u=new URL(response.upload.url);const result=await fetch(origin+u.pathname+u.search,{method:'PUT',body:candidate.bytes});assert.equal(result.status,201);return response;}
+ async function upload(candidate){const reservation=await command('reserve',{manifest:candidate.signed});assert.equal(reservation.status,200);const response=await reservation.json();if(!response.uploadRequired)return response;const u=new URL(response.upload.url);assert.equal(u.search,'');assert.match(response.upload.headers['X-Direct-OTA-Upload'],/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);const result=await fetch(origin+u.pathname,{method:'PUT',headers:response.upload.headers,body:candidate.bytes});assert.equal(result.status,201);return response;}
  return {trust,keys,server,dataDir,origin,post,command,signedCommand,selector,release,upload};
 }
 test('signed publication, public check, immutable upload, ranges and direct withdrawal',async t=>{
@@ -31,7 +31,7 @@ test('signed publication, public check, immutable upload, ranges and direct with
  assert.deepEqual(await(await f.post('/check',f.selector)).json(),{manifest:null});
  assert.equal((await f.command('promote',{manifest:r.signed,expectedSequence:0})).status,400);
  const reservation=await f.upload(r),uploadUrl=new URL(reservation.upload.url);
- assert.equal((await fetch(f.origin+uploadUrl.pathname+uploadUrl.search,{method:'PUT',body:r.bytes})).status,409);
+ assert.equal((await fetch(f.origin+uploadUrl.pathname,{method:'PUT',headers:reservation.upload.headers,body:r.bytes})).status,409);
  assert.equal((await fetch(f.origin+'/artifacts/'+r.manifest.artifact.path)).status,404);
  assert.equal((await f.command('promote',{manifest:r.signed,expectedSequence:0})).status,200);
  assert.equal((await f.command('promote',{manifest:r.signed,expectedSequence:0})).status,200);
@@ -49,19 +49,24 @@ test('unsigned writes, command replay, malformed selectors and upload capabiliti
  const f=await fixture(t);
  assert.equal((await f.post('/publish',{command:'unsigned'})).status,401);
  assert.equal((await fetch(f.origin+'/upload?token=invalid',{method:'PUT',body:'invalid'})).status,403);
+ const r=f.release(),reserve=await(await f.command('reserve',{manifest:r.signed})).json();
+ const capability=reserve.upload.headers['X-Direct-OTA-Upload'];
+ assert.equal((await fetch(f.origin+'/upload',{method:'PUT',body:r.bytes})).status,403);
+ assert.equal((await fetch(f.origin+'/upload?token='+capability,{method:'PUT',body:r.bytes})).status,403);
+ assert.equal((await fetch(f.origin+'/upload?unused=1',{method:'PUT',headers:reserve.upload.headers,body:r.bytes})).status,403);
  const signed=f.signedCommand('status',f.selector);assert.equal((await f.post('/publish',{command:signed})).status,200);assert.equal((await f.post('/publish',{command:signed})).status,409);
  assert.equal((await f.post('/check',{...f.selector,extra:true})).status,400);
  assert.equal((await f.post('/check',{runtime:'x'.repeat(1024)})).status,413);
  assert.equal((await fetch(f.origin+'/artifacts/%2e%2e/secret')).status,404);
 });
 test('incomplete and incorrect bytes never publish; a failed upload can be retried',async t=>{
- const f=await fixture(t),r=f.release();const reserve=await(await f.command('reserve',{manifest:r.signed})).json();const url=new URL(reserve.upload.url),target=f.origin+url.pathname+url.search;
- assert.equal((await fetch(target,{method:'PUT',body:r.bytes.subarray(0,3)})).status,400);
- assert.equal((await fetch(target,{method:'PUT',body:Buffer.alloc(r.bytes.length)})).status,400);
+ const f=await fixture(t),r=f.release();const reserve=await(await f.command('reserve',{manifest:r.signed})).json();const url=new URL(reserve.upload.url),target=f.origin+url.pathname;
+ assert.equal((await fetch(target,{method:'PUT',headers:reserve.upload.headers,body:r.bytes.subarray(0,3)})).status,400);
+ assert.equal((await fetch(target,{method:'PUT',headers:reserve.upload.headers,body:Buffer.alloc(r.bytes.length)})).status,400);
  assert.deepEqual(await readdir(join(f.dataDir,'artifacts')),[]);
  assert.deepEqual(await readdir(join(f.dataDir,'staging')),[]);
  assert.equal((await f.command('promote',{manifest:r.signed,expectedSequence:0})).status,400);
- assert.equal((await fetch(target,{method:'PUT',body:r.bytes})).status,201);
+ assert.equal((await fetch(target,{method:'PUT',headers:reserve.upload.headers,body:r.bytes})).status,201);
  assert.equal((await f.command('promote',{manifest:r.signed,expectedSequence:0})).status,200);
 });
 test('concurrent channel promotions have one winner and rollback reuses only promoted bytes',async t=>{

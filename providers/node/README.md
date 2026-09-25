@@ -3,11 +3,11 @@
 This template launches the provider from an installed `direct-ota` package. Node 24+ is required. Keep one process per persistent data directory and put an HTTPS reverse proxy in front of it.
 The export includes a `.gitignore` for local runtime state and credentials; keep it when committing the service template.
 
-1. Install the Direct OTA release tarball in this exported directory: `npm install /path/to/direct-ota-0.4.0.tgz`.
+1. Install the Direct OTA release tarball in this exported directory: `npm install /path/to/direct-ota-0.7.1.tgz`.
 2. Copy your **public** `direct-ota.config.json` here. Its artifact base must end in `/artifacts`, for example `https://updates.example.com/artifacts`. Do not copy `.direct-ota/identity.json` to the server.
 3. Choose a private persistent data directory. Set `OTA_DATA_DIR` and, if needed, `OTA_TRUST_FILE` to the public configuration path. The default data location is outside the source tree, beneath the service user's home at `.local/state/direct-ota/<appId>/<environment>`.
 4. Run `npm start`. The default listener is `127.0.0.1:8787`; `HOST` and `PORT` can override it. HTTPS terminates at your reverse proxy.
-5. Route `/check`, `/publish`, `/upload`, and `/artifacts/` to this listener. Preserve Range and Content-Range. Disable query-string/access-body logging on `/upload` because its URL contains a short-lived capability.
+5. Route `/check`, `/publish`, `/upload`, and `/artifacts/` to this listener. Preserve Range and Content-Range. Forward the `X-Direct-OTA-Upload` header on `/upload` and redact it from proxy logs.
 
 `start.mjs` imports `direct-ota/server` from the installed package. Do not run the copied `server.mjs` directly: its source-relative imports belong to the package layout.
 

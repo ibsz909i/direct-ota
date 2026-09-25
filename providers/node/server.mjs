@@ -11,7 +11,7 @@ class Failure extends Error { constructor(status, code) { super(code); this.stat
 const fail = (status, code) => { throw new Failure(status, code); };
 const digest = value => createHash('sha256').update(value).digest('hex');
 const selectorKey = s => `${s.platform}:${s.channel}:${s.runtime}`;
-const cors = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, GET, HEAD, OPTIONS','Access-Control-Allow-Headers':'content-type, range','Access-Control-Expose-Headers':'content-range, content-length, etag'};
+const cors = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'POST, PUT, GET, HEAD, OPTIONS','Access-Control-Allow-Headers':'content-type, range, if-range, x-direct-ota-upload','Access-Control-Expose-Headers':'content-range, content-length, etag, accept-ranges'};
 function json(res, status, value) {
   if (res.destroyed) return;
   res.writeHead(status, {...cors,'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
@@ -161,8 +161,9 @@ export async function createOtaServer({trust, dataDir, uploadSecret, uploadBaseU
         }
         if (url.pathname === '/upload' && req.method === 'PUT') {
           if (!publisherEnabled) fail(403,'PUBLISHER_DISABLED');
+          if (url.search) fail(403,'UPLOAD_DENIED');
           if (uploads >= cap.concurrentUploads) fail(429,'UPLOAD_BUSY');
-          const artifact = unpackCapability(url.searchParams.get('token'));
+          const artifact = unpackCapability(req.headers['x-direct-ota-upload']);
           uploads++; const temp = join(staging,randomUUID()+'.part'); let handle;
           try {
             if (req.headers['content-length'] !== undefined && Number(req.headers['content-length']) !== artifact.bytes) fail(400,'ARTIFACT_SIZE');
@@ -220,7 +221,7 @@ export async function createOtaServer({trust, dataDir, uploadSecret, uploadBaseU
             if(current && current.signed!==signed) fail(409,'IMMUTABLE_RELEASE');
             if(!current) addRelease(signed,m); else db.prepare('UPDATE releases SET expires=? WHERE id=?').run(Date.now()+7200000,m.releaseId);
           });
-          json(res,200,{releaseId:m.releaseId,uploadRequired:!uploaded,...(!uploaded?{upload:{url:publicUpload+'?token='+capability(a),method:'PUT',headers:{'Content-Type':'application/zip'}},expiresAt:new Date(Date.now()+900000).toISOString()}:{})}); return;
+          json(res,200,{releaseId:m.releaseId,uploadRequired:!uploaded,...(!uploaded?{upload:{url:publicUpload,method:'PUT',headers:{'Content-Type':'application/zip','X-Direct-OTA-Upload':capability(a)}},expiresAt:new Date(Date.now()+900000).toISOString()}:{})}); return;
         }
         const expected=command.body.expectedSequence;
         if(!Number.isSafeInteger(expected) || expected<0 || m.sequence!==expected+1) fail(400,'INVALID_SEQUENCE');
