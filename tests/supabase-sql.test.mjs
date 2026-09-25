@@ -20,8 +20,12 @@ test('isolated PostgreSQL migration: privileges, replay, CAS, rollback, withdraw
  GRANT USAGE ON SCHEMA storage TO anon,authenticated; GRANT ALL ON ALL TABLES IN SCHEMA storage TO anon,authenticated; GRANT USAGE ON ALL SEQUENCES IN SCHEMA storage TO anon,authenticated;
  CREATE POLICY legacy_buckets ON storage.buckets FOR ALL TO anon,authenticated USING(true) WITH CHECK(true); CREATE POLICY legacy_objects ON storage.objects FOR ALL TO anon,authenticated USING(true) WITH CHECK(true);`);
  sql(readFileSync(new URL('../providers/supabase/migrations/20260925000100_direct_ota.sql',import.meta.url),'utf8'));
+ sql(readFileSync(new URL('../providers/supabase/migrations/20260925000200_larger_artifacts.sql',import.meta.url),'utf8'));
+ sql(readFileSync(new URL('../providers/supabase/migrations/20260925000300_release_history.sql',import.meta.url),'utf8'));
+ assert.equal(sql("SELECT file_size_limit FROM storage.buckets WHERE id='direct-ota';"),'52428800');
  sql(`INSERT INTO direct_ota_private.configuration(key_id,app_id,environment,artifact_base_url,backend_contract,enabled) VALUES('synthetic','app.example.demo','production','https://updates.example.invalid/artifacts',1,true);`);
  assert.equal(sql("SELECT has_function_privilege('anon','public.direct_ota_catalog()','EXECUTE');"),'f');
+ assert.equal(sql("SELECT has_function_privilege('anon','direct_ota_private.release_summary(jsonb)','EXECUTE');"),'f');
  assert.equal(sql("SELECT has_table_privilege('authenticated','direct_ota_private.releases','SELECT');"),'f');
  assert.throws(()=>sql("SET ROLE anon; INSERT INTO storage.objects(name,bucket_id,metadata) VALUES('bad','direct-ota','{}');"));
  assert.equal(sql("SET ROLE authenticated; WITH changed AS (UPDATE storage.buckets SET public=false WHERE id='direct-ota' RETURNING id) SELECT count(*) FROM changed;").split('\n').at(-1),'0');
@@ -31,7 +35,7 @@ test('isolated PostgreSQL migration: privileges, replay, CAS, rollback, withdraw
  function query(action,m,{nonce=randomUUID(),expected=null,verified=false,signed=m?'signed-'+m.releaseId:null}={}){return `SELECT public.direct_ota_command('synthetic',${literal(nonce)},now()+interval '60 seconds',${literal(action)},${signed?literal(signed):'NULL'},${m?literal(JSON.stringify(m))+'::jsonb':'NULL'},${action==='status'?literal(JSON.stringify(selector))+'::jsonb':'NULL'},${expected??'NULL'},${verified?literal(m.artifact.sha256):'NULL'},${verified?m.artifact.bytes:'NULL'});`;}
  const parse=text=>JSON.parse(text.split('\n').at(-1));
  const nonce=randomUUID();assert.equal(parse(sql(query('status',null,{nonce}),true)).sequence,0);assert.throws(()=>sql(query('status',null,{nonce}),true));
- const a=make(1),b=make(1);
+ const a=make(1,{mode:'background'}),b=make(1,{mode:'background'});
  for(const m of [a,b]){assert.equal(parse(sql(query('reserve',m),true)).uploadRequired,true);sql(`INSERT INTO storage.objects(name,bucket_id,metadata) VALUES(${literal(m.artifact.path)},'direct-ota','{"size":10}');`);}
  assert.throws(()=>sql(query('promote',a,{expected:0}),true));
  const concurrent=[a,b].map(m=>run(psql,['-X','-v','ON_ERROR_STOP=1','-At','-d',database,'-c','SET ROLE service_role; '+query('promote',m,{expected:0,verified:true})]));
@@ -42,5 +46,16 @@ test('isolated PostgreSQL migration: privileges, replay, CAS, rollback, withdraw
  const rollback=make(2,{artifact:winner.artifact});assert.equal(parse(sql(query('reserve',rollback),true)).uploadRequired,false);assert.equal(parse(sql(query('promote',rollback,{expected:1,verified:true}),true)).sequence,2);
  const withdrawn=make(3,{action:'withdraw'});delete withdrawn.artifact;assert.equal(parse(sql(query('promote',withdrawn,{expected:2}),true)).sequence,3);
  const catalog=parse(sql('SELECT public.direct_ota_catalog();',true));assert.equal(catalog.length,1);assert.equal(catalog[0].manifest,'signed-'+withdrawn.releaseId);
+ const readCommand=(action,body)=>`SELECT public.direct_ota_command('synthetic',${literal(randomUUID())},now()+interval '60 seconds',${literal(action)},NULL,NULL,${literal(JSON.stringify(body))}::jsonb);`;
+ const history=parse(sql(readCommand('history',{...selector,limit:2}),true));
+ assert.equal(history.scope,'remote');assert.equal(history.items.length,2);assert.equal(history.items[0].sequence,3);assert.equal(history.nextCursor,2);
+ assert.equal(history.items[0].mode,null);
+ const inspected=parse(sql(readCommand('inspect',{releaseId:winner.releaseId}),true));
+ assert.equal(inspected.artifact.sha256,winner.artifact.sha256);
+ assert.equal(inspected.mode,'background');
+ const larger=make(4);larger.artifact.bytes=6291456;
+ assert.equal(parse(sql(query('reserve',larger),true)).uploadRequired,true);
+ const tooLarge=make(4);tooLarge.artifact.bytes=52428801;
+ assert.throws(()=>sql(query('reserve',tooLarge),true));
  sql('UPDATE direct_ota_private.configuration SET enabled=false WHERE singleton;');assert.equal(parse(sql('SELECT public.direct_ota_catalog();',true)).length,0);assert.throws(()=>sql(query('status',null),true));
 });

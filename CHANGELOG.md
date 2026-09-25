@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Allow explicitly pinned larger bundle ceilings across packaging, signed metadata admission, iOS, and Android; preserve the original defaults for existing apps.
+- Include an internal publishing GitHub Action with private temporary identity handling and a reviewed CI example.
+- Preserve upgrades from the prior native overlay using exact known hashes, and widen isolated Cloudflare and Supabase storage constraints without changing prior migration files.
+- Make optional success-event sampling stable per installation and release without sending the installation ID; throttle untrusted check hints and allow a bounded 5–60 minute check interval.
+- Aggregate bounded download duration, bytes, and retry measurements on opt-in Cloudflare and Firebase event endpoints; add an optional stop-only gate for manually requested rollout stages.
+- Add signed background releases that download on Wi-Fi without blocking protected actions and activate on the next process start; retain required updates as the default.
+- Align iOS and Android native UUID admission with the shared protocol and reject normalized invalid iOS dates; expand the signed Swift malformed-manifest corpus.
+- Reject ambiguous, noncanonical, non-file, and overly long ZIP entry names consistently during packaging and native installation.
+- Add signed local release provenance, `inspect`, and paginated local candidate history. Doctor now names changed native inputs when a recorded runtime drifts.
+- Add signed, paginated publisher-only remote history and promoted-release inspection for the Node, Cloudflare, Firebase, and Supabase providers.
+- Allow project-specific literal deny markers in bundle scanning, with exact-file exceptions that cannot bypass built-in credential checks.
+- Add a local release verification command that checks the package version, full test suite, dependency audit, tarball contents, installed CLI/exports, and SHA-256 before publication.
+
 ## 0.6.0
 
 - Add a per-gate `doctor` readiness report and `doctor --fix` for generated settings and a JSON host config that belongs to the same publishing identity. Native runtime drift and another updater identity still fail closed.

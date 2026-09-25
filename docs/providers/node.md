@@ -28,7 +28,7 @@ The default state location is outside the repository. Keep an explicitly configu
 
 Terminate HTTPS at a reverse proxy and forward `/check`, `/publish`, `/upload`, and `/artifacts/` to the loopback listener. The public artifact base must end in `/artifacts`. The app pins it, so keep it stable. Preserve single byte ranges and content lengths. Do not transform or recompress encrypted artifact responses. Full artifacts use a SHA-256 ETag and immutable caching headers; only promoted files are publicly served.
 
-Set a request body limit slightly above 5 MiB, finite timeouts, publishing admission limits, and connection ceilings at the proxy. Disable query-string logging on `/upload`; its URL carries a short-lived capability. Do not log request bodies. Public check requests require no app login; `/publish` requires the configured ES256 publisher signature.
+Set a request body limit slightly above the app's native-pinned `limits.archiveBytes` (5 MiB by default), finite timeouts, publishing admission limits, and connection ceilings at the proxy. Disable query-string logging on `/upload`; its URL carries a short-lived capability. Do not log request bodies. Public check requests require no app login; `/publish` requires the configured ES256 publisher signature.
 
 A CDN can cache immutable artifact responses while metadata stays `no-store`. Do not cache 404/503 responses for long, and test Range behavior through the real CDN. The reference process is not a multi-region metadata service.
 

@@ -7,8 +7,23 @@ export interface OtaTrust {
   keyId: string;
   publicJwk: JsonWebKey;
   backendContract: number;
+  limits?: OtaLimits;
+}
+export interface OtaLimits { archiveBytes: number; unpackedBytes: number; files: number }
+export const OTA_DEFAULT_LIMITS: Readonly<OtaLimits> = Object.freeze({archiveBytes: 5 * 1024 * 1024, unpackedBytes: 25 * 1024 * 1024, files: 1000});
+export const OTA_ABSOLUTE_LIMITS: Readonly<OtaLimits> = Object.freeze({archiveBytes: 50 * 1024 * 1024, unpackedBytes: 100 * 1024 * 1024, files: 5000});
+export function effectiveLimits(trust: OtaTrust): OtaLimits {
+  const limits = trust.limits ?? OTA_DEFAULT_LIMITS;
+  if (!limits || typeof limits !== 'object' || Array.isArray(limits)) throw new Error('Invalid OTA limits');
+  exactKeys(limits as unknown as Record<string,unknown>, ['archiveBytes','unpackedBytes','files']);
+  for (const field of ['archiveBytes','unpackedBytes','files'] as const) {
+    if (!Number.isSafeInteger(limits[field]) || limits[field] < OTA_DEFAULT_LIMITS[field] || limits[field] > OTA_ABSOLUTE_LIMITS[field]) throw new Error('Invalid OTA limits');
+  }
+  if (limits.unpackedBytes < limits.archiveBytes) throw new Error('Invalid OTA limits');
+  return limits;
 }
 export function validateTrust(trust: OtaTrust): OtaTrust {
+  effectiveLimits(trust);
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(trust.appId) ||
       !/^[A-Za-z0-9_-]{1,40}$/.test(trust.environment) ||
       !Number.isSafeInteger(trust.backendContract) || trust.backendContract < 1 ||
@@ -21,9 +36,9 @@ export function validateTrust(trust: OtaTrust): OtaTrust {
   return trust;
 }
 export const OTA_MAX_MANIFEST_LENGTH = 8192;
-export const OTA_MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
-export const OTA_MAX_UNPACKED_BYTES = 25 * 1024 * 1024;
-export const OTA_MAX_FILES = 1000;
+export const OTA_MAX_ARCHIVE_BYTES = OTA_DEFAULT_LIMITS.archiveBytes;
+export const OTA_MAX_UNPACKED_BYTES = OTA_DEFAULT_LIMITS.unpackedBytes;
+export const OTA_MAX_FILES = OTA_DEFAULT_LIMITS.files;
 export const OTA_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const OTA_HASH = /^[0-9a-f]{64}$/;
@@ -33,6 +48,22 @@ export interface OtaSelector {
   platform: OtaPlatform;
   channel: OtaChannel;
   runtime: string;
+}
+export interface OtaHistoryRequest extends OtaSelector { limit: number; beforeSequence?: number }
+export interface OtaHistoryItem { releaseId: string; sequence: number; version: string; action: 'release'|'withdraw'; mode: 'required'|'background'|null; rollout: number; issuedAt: string; artifact: {id: string; sha256: string; bytes: number}|null }
+export function historyItem(manifest: OtaManifest): OtaHistoryItem {
+  const artifact=manifest.action==='release'?manifest.artifact:null;
+  return {releaseId:manifest.releaseId,sequence:manifest.sequence,version:manifest.version,action:manifest.action,
+    mode:manifest.action==='release'?manifest.mode??'required':null,
+    rollout:manifest.rollout,issuedAt:manifest.issuedAt,
+    artifact:artifact?{id:artifact.path.split('/')[2],sha256:artifact.sha256,bytes:artifact.bytes}:null};
+}
+export function validateHistoryRequest(value: unknown): OtaHistoryRequest {
+  const v = object(value);
+  exactKeys(v, v.beforeSequence === undefined ? ['platform','channel','runtime','limit'] : ['platform','channel','runtime','limit','beforeSequence']);
+  validateSelector({platform:v.platform,channel:v.channel,runtime:v.runtime});
+  if (!integer(v.limit,1,50) || (v.beforeSequence !== undefined && !integer(v.beforeSequence,1,Number.MAX_SAFE_INTEGER))) invalid();
+  return v as unknown as OtaHistoryRequest;
 }
 export interface OtaArtifact {
   path: string;
@@ -54,6 +85,7 @@ interface OtaBase extends OtaSelector {
   releaseId: string;
   version: string;
   issuedAt: string;
+  mode?: "required" | "background";
 }
 export type OtaManifest =
   & OtaBase
@@ -68,7 +100,7 @@ export interface OtaPublishCommand {
   protocol: 1;
   appId: string;
   aud: "direct-ota-publish";
-  action: "reserve" | "promote" | "status" | "health";
+  action: "reserve" | "promote" | "status" | "health" | "history" | "inspect";
   iat: number;
   exp: number;
   nonce: string;
@@ -140,7 +172,7 @@ export function validateManifest(
     "version",
     "issuedAt",
   ];
-  exactKeys(v, v.action === "release" ? [...fields, "artifact"] : fields);
+  exactKeys(v, v.action === "release" ? [...fields, "artifact", ...(v.mode === undefined ? [] : ["mode"])] : fields);
   validateSelector({
     platform: v.platform,
     channel: v.channel,
@@ -183,6 +215,7 @@ export function validateManifest(
     ) invalid();
   }
   if (v.action === "release") {
+    if (v.mode !== undefined && v.mode !== "required" && v.mode !== "background") invalid();
     const a = object(v.artifact);
     exactKeys(a, [
       "path",
@@ -196,9 +229,9 @@ export function validateManifest(
     ]);
     if (
       typeof a.sha256 !== "string" || !OTA_HASH.test(a.sha256) ||
-      !integer(a.bytes, 1, OTA_MAX_ARCHIVE_BYTES) ||
-      !integer(a.unpackedBytes, 1, OTA_MAX_UNPACKED_BYTES) ||
-      !integer(a.files, 1, OTA_MAX_FILES)
+      !integer(a.bytes, 1, effectiveLimits(trust).archiveBytes) ||
+      !integer(a.unpackedBytes, 1, effectiveLimits(trust).unpackedBytes) ||
+      !integer(a.files, 1, effectiveLimits(trust).files)
     ) invalid();
     if (typeof a.path !== "string" || a.path.length > 220) invalid();
     const parts = a.path.split("/");
@@ -325,7 +358,7 @@ export async function verifyPublishCommand(
   if (
     v.protocol !== 1 || v.appId !== trust.appId ||
     v.aud !== "direct-ota-publish" ||
-    !["reserve", "promote", "status", "health"].includes(v.action as string) ||
+    !["reserve", "promote", "status", "health", "history", "inspect"].includes(v.action as string) ||
     !integer(v.iat, seconds - 60, seconds + 5) ||
     !integer(v.exp, seconds + 1, seconds + 65) ||
     (v.exp as number) <= (v.iat as number) ||

@@ -8,6 +8,8 @@ Direct OTA publishes signed JavaScript, HTML, CSS, and asset updates for Capacit
 
 Build and publish from your computer or CI. Once the files are uploaded, your computer can go offline. There is no Direct OTA account, subscription, or hosted control panel to run.
 
+For repository CI, see the [GitHub Actions internal publishing template](docs/ci/github-actions.md).
+
 The native updater is built on [Capgo's open-source Capacitor updater](https://github.com/Cap-go/capacitor-updater). This project adds a publishing CLI, signed release protocol, native safety controls, and backend implementations. It is an independent project, not an official Capgo product.
 
 ## What can I update?
@@ -66,6 +68,8 @@ npx direct-ota doctor --remote --platform ios
 ```
 
 `publish` runs the host app's `npm run build`, checks the native runtime, prepares and uploads an immutable bundle, promotes it to **internal**, then confirms the channel head. Run it once per platform. `doctor --remote` verifies the signed live instruction, public artifact bytes, and range downloads. Test the internal update on a device before advancing production. Each platform has its own channel head; production rollouts remain explicit operator actions. See [publishing and recovery](docs/publishing.md).
+
+For release inspection, `direct-ota inspect --release DIR` verifies a candidate's signed local provenance and shows its artifact hash separately from the release ID. `direct-ota history --platform ios` pages through retained local candidates; it does not replace the live channel `status` command.
 
 ## Release safety
 

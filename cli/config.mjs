@@ -1,7 +1,7 @@
 import {readFile, mkdir, writeFile, lstat} from 'node:fs/promises';
 import {resolve, join} from 'node:path';
 import {createPublicKey, generateKeyPairSync, randomBytes} from 'node:crypto';
-import {validateTrust} from '../dist/protocol.js';
+import {validateTrust, effectiveLimits} from '../dist/protocol.js';
 
 export const CONFIG = 'direct-ota.config.json';
 export function httpsUrl(value) {
@@ -42,10 +42,24 @@ export function validateConfig(config) {
   if (config.schema !== 1) throw new Error('Unsupported configuration schema');
   validatePublicJwk(config.publicJwk);
   validateTrust(config);
+  effectiveLimits(config);
   for (const key of ['checkUrl', 'publishUrl', ...(config.eventsUrl ? ['eventsUrl'] : [])]) httpsUrl(config[key]);
   if (!Array.isArray(config.uploadOrigins) || !config.uploadOrigins.length || config.uploadOrigins.some(x => httpsUrl(x + '/').origin !== x)) throw new Error('Specify exact HTTPS upload origins');
   if (typeof config.webDir !== 'string' || !config.webDir || !Array.isArray(config.runtimeInputs) || !config.runtimeInputs.length || config.runtimeInputs.some(x => typeof x !== 'string' || !x)) throw new Error('Configure webDir and runtimeInputs');
   validateBundlePublicKey(config.bundlePublicKey);
+  if (config.scanner !== undefined) {
+    const scanner = config.scanner;
+    if (!scanner || typeof scanner !== 'object' || Array.isArray(scanner) ||
+        Object.keys(scanner).some(key => !['deny','allowFiles'].includes(key))) throw new Error('Invalid scanner settings');
+    for (const key of ['deny','allowFiles']) {
+      const values = scanner[key] ?? [];
+      if (!Array.isArray(values) || values.length > 20 || values.some(value =>
+        typeof value !== 'string' || !value || value.length > 128 || /[\r\n\0]/.test(value))) throw new Error('Invalid scanner settings');
+    }
+    if ((scanner.deny ?? []).some(value => value.length < 4) ||
+        (scanner.allowFiles ?? []).some(value => value.startsWith('/') || value.includes('\\') || value.split('/').some(part => !part || part === '.' || part === '..')))
+      throw new Error('Invalid scanner settings');
+  }
   for (const field of Object.keys(config)) if (/private|secret|token|password/i.test(field)) throw new Error('Public configuration must not contain secrets');
   return config;
 }

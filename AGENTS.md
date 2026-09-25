@@ -39,6 +39,7 @@ Read skills/direct-ota/SKILL.md and docs/publishing.md. Use the configured CLI, 
 - Test the changed feature and the integration paths it affects. Run type checking and the production build. Do not expand a small visual change into unrelated manual testing; broaden checks when the change touches authentication, persistence, native integration, updater security, or shared backend contracts.
 - Run `direct-ota publish --platform ... --version ...` for each platform; it builds, checks native compatibility, prepares, uploads, promotes internally, and confirms the channel head. Native drift requires a new native build, not a bypass.
 - Run `direct-ota doctor --remote --platform ...` to verify deployed metadata, artifact integrity, and range delivery. Verify an actual target app downloads, launches, and reports healthy before claiming device success.
+- Use `direct-ota inspect --release DIR` to verify local signed provenance and distinguish the release ID from the immutable artifact ID. `history` lists retained local candidates; `history --remote --platform ...` pages through promoted server releases using the publisher identity. Use `status` for the authoritative live channel.
 - Promote production in explicit stages. Stop on confirmed startup failures, integrity failures, or core-flow regressions. Follow the user's existing deployment authorization; do not repeatedly request permission already given.
 - Report version, platform/channel, sequence, release ID, verification performed, and any untested scope. A successful upload is not proof of a healthy installed update.
 
@@ -53,5 +54,7 @@ OTA changes must comply with the applicable store policies. Keep backend changes
 ## Developing this repository
 
 Node 24+ and Python 3 are required. Run `npm ci`, then `npm run check`. For native changes, also apply patches to a pristine pinned updater and compile the relevant native platform in a disposable Capacitor fixture. Keep native patches reproducible and fail on upstream drift.
+
+Before tagging a package release, commit the reviewed change set, then run `npm run release:verify -- --out .direct-ota/release-artifacts` from a clean checkout. It checks the version, suite, dependency audit, consumer install, and tarball hash. Attach only those verified bytes; do not use a dirty-tree tarball or claim hosted/device proof from a package smoke test.
 
 Tests use generated keys and synthetic data. Provider tests must cover unauthorized writes, replay, concurrent channel updates, immutable files, partial uploads, and bounded inputs. Record provider/native limitations honestly in docs/verification.md.

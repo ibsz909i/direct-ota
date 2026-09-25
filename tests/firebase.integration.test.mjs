@@ -11,6 +11,7 @@ import {initProject, readIdentity} from '../cli/config.mjs';
 import {exportProvider} from '../cli/provider.mjs';
 import {testProvider} from '../cli/conformance.mjs';
 import {command} from '../cli/transport.mjs';
+import {verifyManifest} from '../src/protocol.ts';
 
 test('Firebase Firestore and Storage emulators pass provider conformance',
   {timeout: 120000, skip: !process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_STORAGE_EMULATOR_HOST}, async t => {
@@ -38,12 +39,26 @@ test('Firebase Firestore and Storage emulators pass provider conformance',
       fetcher: (url, options) => provider.fetch(new Request(url, options))});
     assert.equal(result.mode, 'isolated-write');
     assert(result.checks.includes('synthetic channel withdrawn'));
+    const stored=(await getFirestore(app).collection('direct_ota_releases').doc(result.releaseId).get()).data();
+    const first=await verifyManifest(stored.signed,config);
+    const fetcher=(url,options)=>provider.fetch(new Request(url,options));
+    const history=await command(config,identity,'history',{platform:first.platform,channel:first.channel,
+      runtime:first.runtime,limit:2},fetcher);
+    assert.equal(history.scope,'remote');assert.equal(history.items.length,2);
+    assert.equal(history.items[0].sequence,4);assert.equal(history.nextCursor,3);
+    const inspected=await command(config,identity,'inspect',{releaseId:result.releaseId},fetcher);
+    assert.equal(inspected.artifact.sha256,first.artifact.sha256);
     const event = await provider.fetch(new Request('https://direct-ota-test.web.app/events', {method:'POST',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify({releaseId:result.releaseId,event:'download_failed'})}));
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({releaseId:result.releaseId,event:'download_failed',metrics:{durationMs:2400,bytes:1200,retries:2,connection:'cellular'}})}));
     assert.equal(event.status, 204);
+    const secondEvent = await provider.fetch(new Request('https://direct-ota-test.web.app/events', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({releaseId:result.releaseId,event:'download_failed',metrics:{durationMs:3600,bytes:800,retries:1,connection:'wifi'}})}));
+    assert.equal(secondEvent.status, 204);
     const health = await command(config, identity, 'health', {releaseId:result.releaseId},
       (url, options) => provider.fetch(new Request(url, options)));
-    assert.equal(health.counts.download_failed, 1);
+    assert.equal(health.counts.download_failed, 2);
+    assert.deepEqual(health.metrics.download_failed,{measured:2,durationMs:6000,bytes:2000,retries:3,maxDurationMs:3600,
+      connections:{wifi:1,cellular:1,unknown:0}});
     const personal = await provider.fetch(new Request('https://direct-ota-test.web.app/events', {method:'POST',
       headers:{'Content-Type':'application/json'}, body:JSON.stringify({releaseId:result.releaseId,event:'ready',installationId:'private'})}));
     assert.equal(personal.status, 400);

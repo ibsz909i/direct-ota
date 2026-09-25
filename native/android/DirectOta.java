@@ -17,6 +17,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.text.Normalizer;
 import java.security.*;
 import java.security.spec.*;
 import java.math.BigInteger;
@@ -50,11 +51,17 @@ final class DirectOta {
     private String environment() { return host.getConfig().getString("directOtaEnvironment", ""); }
     private String artifactBaseUrl() { return host.getConfig().getString("directOtaArtifactBaseUrl", ""); }
     private int backendContract() { return host.getConfig().getInt("directOtaBackendContract", 0); }
+    private int maxArchiveBytes() { return host.getConfig().getInt("directOtaMaxArchiveBytes", 5242880); }
+    private int maxUnpackedBytes() { return host.getConfig().getInt("directOtaMaxUnpackedBytes", 26214400); }
+    private int maxFiles() { return host.getConfig().getInt("directOtaMaxFiles", 1000); }
+    private boolean validLimits() { return maxArchiveBytes()>=5242880&&maxArchiveBytes()<=52428800
+        &&maxUnpackedBytes()>=26214400&&maxUnpackedBytes()<=104857600&&maxUnpackedBytes()>=maxArchiveBytes()
+        &&maxFiles()>=1000&&maxFiles()<=5000; }
     boolean enabled() {
         try {
             URI uri = new URI(artifactBaseUrl());
             return runtime().matches("[0-9a-f]{64}") && (channel().equals("internal") || channel().equals("production"))
-                && appId().matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}") && environment().matches("[A-Za-z0-9_-]{1,40}") && backendContract() > 0
+                && appId().matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}") && environment().matches("[A-Za-z0-9_-]{1,40}") && backendContract() > 0 && validLimits()
                 && uri.getScheme().equals("https") && uri.getHost() != null && uri.getRawUserInfo() == null
                 && uri.getRawQuery() == null && uri.getRawFragment() == null && !artifactBaseUrl().endsWith("/")
                 && uri.toASCIIString().equals(artifactBaseUrl()) && uri.getRawPath().matches("/[A-Za-z0-9/_-]*")
@@ -85,11 +92,11 @@ final class DirectOta {
     }
     private boolean networkAllowed(){
         JSONObject m=manifest;JSONObject a=m==null?null:m.optJSONObject("artifact");
-        return !networkType().equals("offline") && (networkType().equals("wifi") || (a!=null && prefs.getBoolean(prefix()+".cellular."+a.optString("sha256"),false)));
+        return !networkType().equals("offline") && (networkType().equals("wifi") || (a!=null && !m.optString("mode").equals("background") && prefs.getBoolean(prefix()+".cellular."+a.optString("sha256"),false)));
     }
     private boolean networkAllowed(Network network,String hash){
         String type=networkType(network);
-        return !type.equals("offline") && (type.equals("wifi") || prefs.getBoolean(prefix()+".cellular."+hash,false));
+        return !type.equals("offline") && (type.equals("wifi") || (manifest!=null && !manifest.optString("mode").equals("background") && prefs.getBoolean(prefix()+".cellular."+hash,false)));
     }
     private boolean imported(String hash){
         try{return prefs.getBoolean(prefix()+".verified."+hash,false) && new File(CapgoUpdater.resolveBundleDirectory(host.implementation.documentsDir,bundleId(hash)),"index.html").isFile();}catch(Exception e){return false;}
@@ -126,19 +133,20 @@ final class DirectOta {
         Signature verifier=Signature.getInstance("SHA256withECDSA");verifier.initVerify(key);verifier.update((parts[0]+"."+parts[1]).getBytes(StandardCharsets.UTF_8));require(verifier.verify(derSignature(b64(parts[2]))));
         JSONObject m=new JSONObject(new String(b64(parts[1]),StandardCharsets.UTF_8));
         String action=m.optString("action");
-        require(action.equals("release") ? exactKeys(m,"protocol","appId","environment","platform","channel","runtime","sequence","backendContract","rollout","action","releaseId","version","issuedAt","artifact") : exactKeys(m,"protocol","appId","environment","platform","channel","runtime","sequence","backendContract","rollout","action","releaseId","version","issuedAt"));
+        require(action.equals("release") ? (m.has("mode") ? exactKeys(m,"protocol","appId","environment","platform","channel","runtime","sequence","backendContract","rollout","action","releaseId","version","issuedAt","artifact","mode") : exactKeys(m,"protocol","appId","environment","platform","channel","runtime","sequence","backendContract","rollout","action","releaseId","version","issuedAt","artifact")) : exactKeys(m,"protocol","appId","environment","platform","channel","runtime","sequence","backendContract","rollout","action","releaseId","version","issuedAt"));
         require(integer(m,"protocol",1,1)&&m.optString("appId").equals(appId())&&m.optString("environment").equals(environment())&&m.optString("platform").equals("android")&&m.optString("channel").equals(channel())&&m.optString("runtime").equals(runtime())&&integer(m,"backendContract",backendContract(),backendContract())&&integer(m,"sequence",1,9007199254740991L)&&integer(m,"rollout",0,100));
-        require(m.getString("releaseId").matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")&&DirectOtaVersion.valid(m.getString("version")));
+        require(m.getString("releaseId").matches("[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")&&DirectOtaVersion.valid(m.getString("version")));
         String issued=m.getString("issuedAt");require(issued.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z"));
         java.text.SimpleDateFormat format=new java.text.SimpleDateFormat(issued.contains(".")?"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'":"yyyy-MM-dd'T'HH:mm:ss'Z'",Locale.ROOT);
         format.setLenient(false);format.setTimeZone(TimeZone.getTimeZone("UTC"));java.text.ParsePosition position=new java.text.ParsePosition(0);
         Date issuedDate=format.parse(issued,position);require(issuedDate!=null&&position.getIndex()==issued.length()&&issuedDate.getTime()<=System.currentTimeMillis()+300000L);
-        if(m.optString("action").equals("withdraw")){require(!m.has("artifact")||m.isNull("artifact"));return m;}
+        if(m.optString("action").equals("withdraw")){require(!m.has("artifact")&&!m.has("mode"));return m;}
         require(m.optString("action").equals("release"));JSONObject a=m.getJSONObject("artifact");
+        require(!m.has("mode")||m.getString("mode").equals("required")||m.getString("mode").equals("background"));
         require(exactKeys(a,"path","url","sha256","bytes","unpackedBytes","files","checksum","sessionKey"));
-        require(integer(a,"bytes",1,5242880)&&integer(a,"unpackedBytes",1,26214400)&&integer(a,"files",1,1000)&&a.getString("sha256").matches("[0-9a-f]{64}"));
+        require(integer(a,"bytes",1,maxArchiveBytes())&&integer(a,"unpackedBytes",1,maxUnpackedBytes())&&integer(a,"files",1,maxFiles())&&a.getString("sha256").matches("[0-9a-f]{64}"));
         String[] path=a.getString("path").split("/",-1);
-        require(path.length==4&&path[0].equals("android")&&path[1].equals(runtime())&&path[2].matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")&&path[3].equals(a.getString("sha256")+".zip"));
+        require(path.length==4&&path[0].equals("android")&&path[1].equals(runtime())&&path[2].matches("[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")&&path[3].equals(a.getString("sha256")+".zip"));
         require(a.getString("url").equals(artifactBaseUrl()+"/"+a.getString("path")));
         String[] session=a.getString("sessionKey").split(":",-1);
         require(session.length==2&&Base64.decode(session[0],Base64.NO_WRAP).length==16&&Base64.decode(session[1],Base64.NO_WRAP).length==256);
@@ -159,7 +167,7 @@ final class DirectOta {
     }
     synchronized JSObject state(){
         recover();JSObject s=new JSObject();s.put("enabled",enabled());s.put("platform","android");s.put("runtime",runtime());s.put("channel",channel());s.put("connection",networkType());s.put("phase",phase);s.put("received",received);s.put("installationId",prefs.getString("installation",""));s.put("current",host.implementation.getCurrentBundle().getId());
-        if(token!=null&&manifest!=null){s.put("manifest",token);s.put("total",manifest.optJSONObject("artifact").optInt("bytes"));s.put("version",manifest.optString("version"));s.put("releaseId",manifest.optString("releaseId"));s.put("cellularAllowed",prefs.getBoolean(prefix()+".cellular."+manifest.optJSONObject("artifact").optString("sha256"),false));}if(error!=null)s.put("error",error);return s;
+        if(token!=null&&manifest!=null){s.put("manifest",token);s.put("total",manifest.optJSONObject("artifact").optInt("bytes"));s.put("version",manifest.optString("version"));s.put("releaseId",manifest.optString("releaseId"));s.put("mode",manifest.optString("mode","required"));s.put("cellularAllowed",prefs.getBoolean(prefix()+".cellular."+manifest.optJSONObject("artifact").optString("sha256"),false));}if(error!=null)s.put("error",error);return s;
     }
     private void emit(){main.post(()->host.directOtaEmit(state()));}
     synchronized void accept(String signed)throws Exception{
@@ -181,6 +189,7 @@ final class DirectOta {
         new Thread(()->{
             try{
                 require(m!=null);JSONObject a=m.getJSONObject("artifact");String hash=a.getString("sha256"),id=bundleId(hash);
+                if(cellular&&m.optString("mode").equals("background"))throw new IOException("OTA_PAUSED");
                 if(cellular)prefs.edit().putBoolean(prefix()+".cellular."+hash,true).commit();
                 if(!networkAllowed())throw new IOException("OTA_PAUSED");
                 paused=false;error=null;
@@ -232,12 +241,12 @@ final class DirectOta {
         byte[] raw=Files.readAllBytes(file.toPath());int end=-1;
         for(int i=raw.length-22;i>=Math.max(0,raw.length-65557);i--){if(le32(raw,i)==0x06054b50L&&i+22+le16(raw,i+20)==raw.length){end=i;break;}}
         require(end>=0&&le16(raw,end+4)==0&&le16(raw,end+6)==0);
-        int count=le16(raw,end+10);require(count==a.getInt("files")&&count==le16(raw,end+8)&&count<=1000);
+        int count=le16(raw,end+10);require(count==a.getInt("files")&&count==le16(raw,end+8)&&count<=maxFiles());
         long offset=le32(raw,end+16),length=le32(raw,end+12);require(offset+length==end);
         int at=(int)offset;
         for(int i=0;i<count;i++){
             require(at>=0&&at+46<=end&&le32(raw,at)==0x02014b50L);
-            long mode=le32(raw,at+38)>>>16;require((mode&0170000)!=0120000);
+            long mode=le32(raw,at+38)>>>16;require((mode&0170000)==0||(mode&0170000)==0100000);
             at+=46+le16(raw,at+28)+le16(raw,at+30)+le16(raw,at+32);
         }
         require(at==end);
@@ -245,11 +254,21 @@ final class DirectOta {
         int files=0;long size=0;Set<String> names=new HashSet<>();
         // java.util.zip never creates symlinks; Capgo extraction writes regular files only.
         try(ZipFile zip=new ZipFile(file)){Enumeration<? extends ZipEntry> entries=zip.entries();byte[] buffer=new byte[32768];
-            while(entries.hasMoreElements()){ZipEntry entry=entries.nextElement();String name=entry.getName();require(++files<=1000&&!name.startsWith("/")&&!name.contains("\\")&&!name.contains(":")&&!name.contains("\0")&&!Arrays.asList(name.split("/")).contains("..")&&names.add(name));
-                try(InputStream in=zip.getInputStream(entry)){int read;while((read=in.read(buffer))!=-1){size+=read;require(size<=a.getLong("unpackedBytes")&&size<=26214400);}}
+            while(entries.hasMoreElements()){ZipEntry entry=entries.nextElement();String name=entry.getName();require(++files<=maxFiles()&&!entry.isDirectory()&&safeEntry(name)&&names.add(name));
+                try(InputStream in=zip.getInputStream(entry)){int read;while((read=in.read(buffer))!=-1){size+=read;require(size<=a.getLong("unpackedBytes")&&size<=maxUnpackedBytes());}}
             }
         }
         require(files==a.getInt("files")&&size==a.getLong("unpackedBytes")&&names.contains("index.html"));
+    }
+    static boolean safeEntry(String name){
+        if(name==null||name.isEmpty()||name.getBytes(StandardCharsets.UTF_8).length>1024||
+            !Normalizer.isNormalized(name,Normalizer.Form.NFC)||name.startsWith("/")||
+            name.contains("\\")||name.contains(":"))return false;
+        String[] parts=name.split("/",-1);
+        if(parts.length>32)return false;
+        for(String part:parts)if(part.isEmpty()||part.equals(".")||part.equals(".."))return false;
+        for(int i=0;i<name.length();i++){char c=name.charAt(i);if(c<32||(c>=127&&c<=159))return false;}
+        return true;
     }
     private static int le16(byte[] bytes,int offset){return (bytes[offset]&255)|((bytes[offset+1]&255)<<8);}
     private static long le32(byte[] bytes,int offset){return (long)le16(bytes,offset)|((long)le16(bytes,offset+2)<<16);}

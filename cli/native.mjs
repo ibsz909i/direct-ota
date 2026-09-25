@@ -4,6 +4,7 @@ import crypto, {createPublicKey} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
+import {effectiveLimits} from '../dist/protocol.js';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const updaterVersion = '8.51.25';
@@ -24,6 +25,7 @@ const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function writeJson(file, value) { fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n'); }
 function requireConfig(config) {
+  effectiveLimits(config);
   if (!config || config.schema !== 1 || typeof config.appId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(config.appId) ||
       typeof config.environment !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(config.environment) || !Number.isSafeInteger(config.backendContract) || config.backendContract < 1 || config.backendContract > 2147483647 ||
       typeof config.artifactBaseUrl !== 'string' || typeof config.keyId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(config.keyId) ||
@@ -115,6 +117,7 @@ function nativeWrites(projectRoot) {
     ['android/DirectOta.java', 'android/src/main/java/ee/forgr/capacitor_updater/DirectOta.java'],
     ['android/DirectOtaVersion.java', 'android/src/main/java/ee/forgr/capacitor_updater/DirectOtaVersion.java'],
   ];
+  const history = readJson(path.join(packageRoot, 'native', 'overlay-history.json'));
   for (const [source, target] of overlay) {
     const bytes = fs.readFileSync(path.join(packageRoot, 'native', source));
     const destination = path.join(base, target);
@@ -123,8 +126,10 @@ function nativeWrites(projectRoot) {
       const destinationStat = fs.lstatSync(destination);
       if (!destinationStat.isFile() || destinationStat.isSymbolicLink()) throw Error(`Native overlay is not a regular file: ${target}`);
     }
-    if (fs.existsSync(destination) && sha256(fs.readFileSync(destination)) !== sha256(bytes)) {
-      throw Error(`Native overlay drift: ${target}`);
+    if (fs.existsSync(destination)) {
+      const existing = sha256(fs.readFileSync(destination));
+      if (existing !== sha256(bytes) && !history[target]?.includes(existing))
+        throw Error(`Native overlay drift: ${target}`);
     }
     writes.push([destination, bytes]);
   }
@@ -145,7 +150,7 @@ export function installNative(projectRoot, config) {
 }
 
 /** Hash only declared native compatibility inputs, including path names and file bytes. */
-export function fingerprintNative(projectRoot, config) {
+export function nativeSnapshot(projectRoot, config) {
   requireConfig(config);
   if (!Array.isArray(config?.runtimeInputs) || config.runtimeInputs.length === 0) throw Error('Missing runtimeInputs');
   const root = path.resolve(projectRoot);
@@ -168,8 +173,9 @@ export function fingerprintNative(projectRoot, config) {
     visit(input);
   }
   const hash = crypto.createHash('sha256');
+  const inputs = Object.create(null);
   hash.update('direct-ota-runtime-v1\0');
-  hash.update(JSON.stringify({
+  const trust = JSON.stringify({
     schema: config.schema,
     appId: config.appId,
     environment: config.environment,
@@ -178,11 +184,16 @@ export function fingerprintNative(projectRoot, config) {
     keyId: config.keyId,
     publicJwk: {kty: config.publicJwk.kty, crv: config.publicJwk.crv, x: config.publicJwk.x, y: config.publicJwk.y},
     bundlePublicKey: config.bundlePublicKey,
-  }) + '\0');
+    limits: config.limits,
+  });
+  hash.update(trust + '\0');
+  inputs['@public-trust'] = sha256(trust);
   for (const relative of ['native/patches.json', 'native/ios/DirectOta.swift', 'native/ios/DirectOtaProtocol.swift', 'native/android/DirectOta.java', 'native/android/DirectOtaVersion.java']) {
     hash.update(relative + '\0');
-    hash.update(fs.readFileSync(path.join(packageRoot, relative)));
+    const bytes = fs.readFileSync(path.join(packageRoot, relative));
+    hash.update(bytes);
     hash.update('\0');
+    inputs[`@direct-ota/${relative}`] = sha256(bytes);
   }
   for (const relative of [...new Set(files)].sort()) {
     hash.update(relative + '\0');
@@ -198,11 +209,22 @@ export function fingerprintNative(projectRoot, config) {
         delete normalized.plugins.CapacitorUpdater;
         if (!Object.keys(normalized.plugins).length) delete normalized.plugins;
       }
-      hash.update(JSON.stringify(normalized));
-    } else hash.update(bytes);
+      const normalizedBytes = JSON.stringify(normalized);
+      hash.update(normalizedBytes);
+      inputs[relative] = sha256(normalizedBytes);
+    } else { hash.update(bytes); inputs[relative] = sha256(bytes); }
     hash.update('\0');
   }
-  return hash.digest('hex');
+  return {runtime: hash.digest('hex'), inputs};
+}
+
+export function fingerprintNative(projectRoot, config) { return nativeSnapshot(projectRoot, config).runtime; }
+
+export function changedNativeInputs(recorded, current) {
+  if (!recorded?.inputs || typeof recorded.inputs !== 'object' || Array.isArray(recorded.inputs)) return [];
+  return [...new Set([...Object.keys(recorded.inputs), ...Object.keys(current.inputs)])]
+    .filter(name => !Object.hasOwn(recorded.inputs,name) || !Object.hasOwn(current.inputs,name) ||
+      recorded.inputs[name] !== current.inputs[name]).sort();
 }
 
 /** Pure effective plugin configuration for doctor checks and native generation. */
@@ -210,6 +232,7 @@ export function nativePluginConfig(config, runtime, channel = 'production') {
   requireConfig(config);
   if (!['internal', 'production'].includes(channel)) throw Error('Invalid Direct OTA channel');
   if (typeof runtime !== 'string' || !/^[0-9a-f]{64}$/.test(runtime)) throw Error('Invalid Direct OTA runtime');
+  const limits = effectiveLimits(config);
   return {
     autoUpdate: 'off', updateUrl: '', statsUrl: '', channelUrl: '',
     allowModifyUrl: false, autoDeletePrevious: false, autoDeleteFailed: false,
@@ -221,14 +244,16 @@ export function nativePluginConfig(config, runtime, channel = 'production') {
     directOtaArtifactBaseUrl: config.artifactBaseUrl, directOtaBackendContract: config.backendContract,
     directOtaRuntime: runtime, directOtaChannel: channel,
     directOtaKeyId: config.keyId, directOtaKeyX: config.publicJwk.x, directOtaKeyY: config.publicJwk.y,
+    directOtaMaxArchiveBytes: limits.archiveBytes, directOtaMaxUnpackedBytes: limits.unpackedBytes,
+    directOtaMaxFiles: limits.files,
   };
 }
 
 /** Emit generated runtime and Capacitor plugin configuration for the host app to import. */
 export function writeNativeConfig(projectRoot, config, {channel = 'production'} = {}) {
-  const runtime = fingerprintNative(projectRoot, config);
+  const {runtime, inputs} = nativeSnapshot(projectRoot, config);
   const plugin = nativePluginConfig(config, runtime, channel);
-  writeJson(path.join(projectRoot, 'direct-ota.runtime.json'), {protocol: 1, runtime});
+  writeJson(path.join(projectRoot, 'direct-ota.runtime.json'), {protocol: 1, runtime, inputs});
   writeJson(path.join(projectRoot, 'direct-ota.capacitor.json'), plugin);
   return {runtime, plugin};
 }

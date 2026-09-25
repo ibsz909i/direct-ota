@@ -11,7 +11,7 @@
       {"source": "/artifacts/**", "function": {"functionId": "directOta", "region": "us-central1"}}
     ]
   },
-  "firestore": {"rules": "firestore.rules"},
+  "firestore": {"rules": "firestore.rules", "indexes": "firestore.indexes.json"},
   "storage": {"rules": "storage.rules"},
   "emulators": {
     "firestore": {"host": "127.0.0.1", "port": 18080},

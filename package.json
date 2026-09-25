@@ -19,7 +19,8 @@
     "./server": "./providers/node/server.mjs"
   },
   "files": [
-    "cli",
+    "cli/*.mjs",
+    "cli/package.py",
     "dist",
     "native",
     "providers",
@@ -43,6 +44,7 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "check:cloudflare": "cd providers/cloudflare && ../../node_modules/.bin/wrangler types && ../../node_modules/.bin/tsc --project tsconfig.json && ../../node_modules/.bin/wrangler deploy --dry-run",
     "check": "npm run typecheck && npm test && npm run check:cloudflare && npm run build",
+    "release:verify": "node scripts/release-verify.mjs",
     "prepack": "npm run check",
     "prepare": "npm run build"
   },

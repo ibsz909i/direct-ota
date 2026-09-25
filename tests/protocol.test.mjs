@@ -27,6 +27,24 @@ test('artifact path and URL are exact and bounded', () => {
  m.artifact={path,url:trust.artifactBaseUrl+'/'+path,sha256:hash,bytes:100,unpackedBytes:200,files:2,checksum:Buffer.alloc(256).toString('base64'),sessionKey:Buffer.alloc(16).toString('base64')+':'+Buffer.alloc(256).toString('base64')};
  validateManifest(m,trust);
  for(const change of [{url:m.artifact.url+'?redirect=evil'},{path:'../other'},{bytes:5242881},{files:1001},{unpackedBytes:26214401},{checksum:'bad'}]) assert.throws(()=>validateManifest({...m,artifact:{...m.artifact,...change}},trust));
+ assert.equal(validateManifest({...m,mode:'background'},trust).mode,'background');
+ assert.equal(validateManifest({...m,mode:'required'},trust).mode,'required');
+ for(const mode of ['silent','',null,1])assert.throws(()=>validateManifest({...m,mode},trust));
+ assert.throws(()=>validateManifest({...manifest(),mode:'background'},trust));
+});
+test('larger archives require matching native-pinned limits and remain bounded', () => {
+ const m=manifest();m.action='release';
+ const hash='d'.repeat(64),path=`ios/${m.runtime}/${m.releaseId}/${hash}.zip`;
+ m.artifact={path,url:trust.artifactBaseUrl+'/'+path,sha256:hash,bytes:6*1024*1024,unpackedBytes:30*1024*1024,files:1200,checksum:Buffer.alloc(256).toString('base64'),sessionKey:Buffer.alloc(16).toString('base64')+':'+Buffer.alloc(256).toString('base64')};
+ assert.throws(()=>validateManifest(m,trust));
+ const larger={...trust,limits:{archiveBytes:20*1024*1024,unpackedBytes:100*1024*1024,files:5000}};
+ assert.equal(validateManifest(m,larger).artifact.bytes,m.artifact.bytes);
+ for(const limits of [
+   {archiveBytes:51*1024*1024,unpackedBytes:100*1024*1024,files:5000},
+   {archiveBytes:20*1024*1024,unpackedBytes:25*1024*1024,files:5001},
+   {archiveBytes:30*1024*1024,unpackedBytes:25*1024*1024,files:1000},
+ ]) assert.throws(()=>validateTrust({...trust,limits}));
+ assert.throws(()=>validateManifest({...m,artifact:{...m.artifact,bytes:larger.limits.archiveBytes+1}},larger));
 });
 test('publishing commands require scoped purpose and a short expiry', async () => {
  const iat=Math.floor(Date.now()/1000),body={protocol:1,appId:trust.appId,aud:'direct-ota-publish',action:'status',iat,exp:iat+60,nonce:randomUUID(),body:{}};

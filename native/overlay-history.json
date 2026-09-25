@@ -1,0 +1,5 @@
+{
+  "ios/Sources/CapacitorUpdaterPlugin/DirectOta.swift": ["ca8f5e874ff1a332a912738182470c629bad4b177fea5a893d83aff3b8a2ba40"],
+  "ios/Sources/CapacitorUpdaterPlugin/DirectOtaProtocol.swift": ["7f924aeb66ff784042d6034912ce359c8d86f046890f1e592a0b2f170bf5124d"],
+  "android/src/main/java/ee/forgr/capacitor_updater/DirectOta.java": ["4d90bbcd0e47cc1ac38c59ec07d471a8d94aaf27c469cb5e03d6f338e5d405a4"]
+}

@@ -1,7 +1,7 @@
 /** Portable HTTP admission for Direct OTA providers. Persistence must be atomic in the adapter. */
 import {
-  exactKeys, object, validateSelector, validateTrust, verifyManifest,
-  verifyPublishCommand, type OtaManifest, type OtaSelector, type OtaTrust,
+  exactKeys, object, validateSelector, validateTrust, validateHistoryRequest, verifyManifest,
+  verifyPublishCommand, OTA_UUID, type OtaManifest, type OtaSelector, type OtaTrust, type OtaHistoryRequest, type OtaHistoryItem,
 } from './protocol.js';
 
 export class ProviderError extends Error {
@@ -15,7 +15,10 @@ export interface ProviderHead { sequence: number; manifest: string | null }
 export interface ProviderUpload { url: string; method: 'PUT'; headers: Record<string, string> }
 export interface ProviderReservation { releaseId: string; uploadRequired: boolean; upload?: ProviderUpload }
 export interface ProviderPromotion { sequence: number; releaseId: string }
-export interface ProviderHealth { releaseId: string; counts: Record<string, number>; sampledSuccessRate: number }
+export interface ProviderHealth { releaseId: string; counts: Record<string, number>; sampledSuccessRate: number;
+  metrics?: Record<string,{measured:number;durationMs:number;bytes:number;retries:number;maxDurationMs:number;
+    connections?:{wifi:number;cellular:number;unknown:number}}> }
+export interface ProviderHistory { items: OtaHistoryItem[]; nextCursor: number|null; scope: 'remote' }
 
 export interface ProviderAdapter {
   /** Must not write on a check. Unknown selectors return null. */
@@ -24,6 +27,8 @@ export interface ProviderAdapter {
   /** Must atomically reject replay; retain nonces beyond the signed command window. */
   consumeNonce(nonce: string, expiresAtMs: number): Promise<void>;
   health?(releaseId: string): Promise<ProviderHealth>;
+  history?(request: OtaHistoryRequest): Promise<ProviderHistory>;
+  inspect?(releaseId: string): Promise<OtaHistoryItem | null>;
   /** Must reserve immutable paths and verify an existing object's hash. */
   reserve(signed: string, manifest: OtaManifest & {action: 'release'}): Promise<ProviderReservation>;
   /** Must rehash artifacts and perform an atomic sequence compare-and-swap. */
@@ -109,6 +114,23 @@ export function createProvider(trust: OtaTrust, adapter: ProviderAdapter,
           try { selected = validateSelector(command.body); }
           catch { providerFail(400, 'INVALID_REQUEST'); }
           return json(await adapter.status(selected));
+        }
+        if (command.action === 'history') {
+          let query: OtaHistoryRequest;
+          try { query=validateHistoryRequest(command.body); }
+          catch { providerFail(400,'INVALID_REQUEST'); }
+          if (!adapter.history) providerFail(404,'NOT_FOUND');
+          return json(await adapter.history(query));
+        }
+        if (command.action === 'inspect') {
+          let releaseId: string;
+          try { exactKeys(command.body,['releaseId']); releaseId=command.body.releaseId as string;
+            if (typeof releaseId!=='string'||!OTA_UUID.test(releaseId)) providerFail(400,'INVALID_REQUEST'); }
+          catch(error) { if(error instanceof ProviderError)throw error;providerFail(400,'INVALID_REQUEST'); }
+          if (!adapter.inspect) providerFail(404,'NOT_FOUND');
+          const item=await adapter.inspect(releaseId);
+          if (!item) providerFail(404,'NOT_FOUND');
+          return json(item);
         }
         let manifest: OtaManifest;
         try {

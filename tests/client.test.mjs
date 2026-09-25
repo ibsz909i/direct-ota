@@ -1,7 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {UpdateActivityGuard} from '../dist/client/activity.js';
-import {UpdateCoordinator} from '../dist/client/coordinator.js';
+import {UpdateCoordinator, sampledForRelease} from '../dist/client/coordinator.js';
+
+test('success sampling is stable per installation and release without transmitting identity',async()=>{
+  const release='12345678-1234-4234-8234-123456789abc';
+  const selected=await sampledForRelease('synthetic-installation',release);
+  assert.equal(await sampledForRelease('synthetic-installation',release),selected);
+  const samples=await Promise.all(Array.from({length:1000},(_,i)=>sampledForRelease(`synthetic-${i}`,release)));
+  const count=samples.filter(Boolean).length;
+  assert.ok(count>=2&&count<=25,`unexpected 1% sample count: ${count}`);
+  assert.equal(await sampledForRelease('',release),false);
+});
 
 const state={enabled:true,platform:'ios',runtime:'a'.repeat(64),channel:'production',connection:'cellular',phase:'required',received:0,current:'builtin',installationId:'synthetic-install',manifest:'verified-manifest',total:100};
 const endpoints={checkUrl:'https://example.invalid/check'};
@@ -41,6 +51,32 @@ test('cellular transfer needs explicit consent and stays locked during open work
   await a.coordinator.retry(true);assert.deepEqual(a.downloads,[{allowCellular:true}]);a.coordinator.stop();
 });
 
+test('background release downloads on Wi-Fi without blocking and activates on next process start',async()=>{
+  const background={...state,connection:'wifi',mode:'background',releaseId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'};
+  const first=setup(background),finish=first.guard.begin();
+  await first.coordinator.start();await tick();assert.equal(first.downloads.length,0);
+  finish();await tick();
+  assert.deepEqual(first.downloads,[{allowCellular:false}]);
+  assert.equal(first.coordinator.getSnapshot().blocking,false);
+  assert.equal(first.activations,0);
+  first.coordinator.stop();
+  const second=setup({...background,phase:'ready'});
+  await second.coordinator.start();await tick();
+  assert.equal(second.coordinator.getSnapshot().blocking,true);
+  assert.equal(second.activations,1);
+  second.coordinator.stop();
+});
+
+test('background release never starts a cellular download',async()=>{
+  const a=setup({...state,mode:'background',releaseId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',cellularAllowed:true});
+  await a.coordinator.start();await tick();
+  assert.equal(a.coordinator.getSnapshot().blocking,false);
+  assert.equal(a.downloads.length,0);
+  await a.coordinator.retry(true);
+  assert.equal(a.downloads.length,0);
+  a.coordinator.stop();
+});
+
 test('withdrawal invalidates stale download completion and stops activation',async()=>{
   const a=setup({...state,connection:'wifi'});let resolve;
   a.native.otaDownload=()=>new Promise(done=>{resolve=done;});
@@ -53,8 +89,21 @@ test('withdrawal invalidates stale download completion and stops activation',asy
 test('endpoint configuration requires HTTPS and optional telemetry stays absent',async()=>{
   const a=setup({...state,manifest:undefined,connection:'wifi'});
   assert.throws(()=>new UpdateCoordinator(a.native,{checkUrl:'http://example.invalid/check'},a.guard),/OTA_CONFIG/);
+  for(const minutes of [0,4,61,5.5,NaN])assert.throws(()=>new UpdateCoordinator(a.native,{...endpoints,checkIntervalMinutes:minutes},a.guard),/OTA_CONFIG/);
   await a.coordinator.start();await a.coordinator.check(true);
   assert.equal(a.checks,1);a.coordinator.stop();
+});
+
+test('push hints are throttled and only trigger the signed metadata path',async t=>{
+  deterministicTime(t);
+  const a=setup({...state,manifest:undefined,connection:'wifi'});
+  try{
+    await a.coordinator.start();a.coordinator.hint();await flush();
+    assert.equal(a.checks,1);
+    a.coordinator.hint();await advance(t,29999);assert.equal(a.checks,1);
+    a.coordinator.hint();await flush();assert.equal(a.checks,1);
+    await advance(t,1);a.coordinator.hint();await flush();assert.equal(a.checks,2);
+  }finally{a.coordinator.stop();t.mock.timers.reset();t.mock.restoreAll();}
 });
 
 test('transient downloads use two quick retries, then slower bounded recovery',async t=>{

@@ -1,9 +1,9 @@
-import {exactKeys, object, validateSelector, validateTrust, verifyManifest,
-  verifyPublishCommand, OTA_MAX_ARCHIVE_BYTES, type OtaArtifact, type OtaManifest,
+import {exactKeys, object, validateSelector, validateTrust, validateHistoryRequest, OTA_UUID, verifyManifest,
+  verifyPublishCommand, type OtaArtifact, type OtaManifest,
   type OtaTrust} from './protocol.ts';
 import {cors, fail, json, makeUploadToken, problem, readBytes, readJson, sha256,
   verifyUploadToken, type UploadClaim} from './security.ts';
-import {consumeCommand, head, promote, promotedPath, releaseById, reserve} from './state.ts';
+import {consumeCommand, head, history, inspect as inspectReleaseState, promote, promotedPath, releaseById, reserve} from './state.ts';
 import {catalogManifest, invalidateCatalog} from './catalog.ts';
 import {OTA_SUCCESS_SAMPLE_RATE, validateEvent} from './telemetry.ts';
 
@@ -46,9 +46,12 @@ async function publishing(request: Request, env: Env, trust: OtaTrust): Promise<
     try { exactKeys(command.body, ['releaseId']); releaseId = command.body.releaseId as string;
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(releaseId)) throw Error();
     } catch { fail(400, 'INVALID_REQUEST'); }
-    const rows = await env.DB.prepare('SELECT event, count FROM event_totals WHERE release_id = ? LIMIT 16')
-      .bind(releaseId).all<{event: string; count: number}>();
+    const rows = await env.DB.prepare('SELECT event, count, measured, duration_ms, bytes, retries, max_duration_ms, wifi, cellular, unknown_connection FROM event_totals WHERE release_id = ? LIMIT 16')
+      .bind(releaseId).all<{event: string; count: number; measured: number; duration_ms: number; bytes: number; retries: number; max_duration_ms: number; wifi: number; cellular: number; unknown_connection: number}>();
     return json({releaseId, counts: Object.fromEntries(rows.results.map(row => [row.event, row.count])),
+      metrics: Object.fromEntries(rows.results.map(row => [row.event, {measured:row.measured,durationMs:row.duration_ms,
+        bytes:row.bytes,retries:row.retries,maxDurationMs:row.max_duration_ms,
+        connections:{wifi:row.wifi,cellular:row.cellular,unknown:row.unknown_connection}}])),
       sampledSuccessRate: OTA_SUCCESS_SAMPLE_RATE});
   }
   if (command.action === 'status') {
@@ -56,6 +59,20 @@ async function publishing(request: Request, env: Env, trust: OtaTrust): Promise<
     try { selected = validateSelector(command.body); }
     catch { fail(400, 'INVALID_REQUEST'); }
     return json(await head(env.DB, selected));
+  }
+  if (command.action === 'history') {
+    let query;
+    try { query=validateHistoryRequest(command.body); } catch { fail(400,'INVALID_REQUEST'); }
+    return json(await history(env.DB,query));
+  }
+  if (command.action === 'inspect') {
+    let releaseId;
+    try { exactKeys(command.body,['releaseId']);releaseId=command.body.releaseId;
+      if(typeof releaseId!=='string'||!OTA_UUID.test(releaseId))throw Error(); }
+    catch { fail(400,'INVALID_REQUEST'); }
+    const item=await inspectReleaseState(env.DB,releaseId);
+    if(!item)fail(404,'NOT_FOUND');
+    return json(item);
   }
   let manifest: OtaManifest;
   try {
@@ -117,9 +134,17 @@ async function event(request: Request, env: Env): Promise<Response> {
   if (admitted.meta.changes !== 1) fail(429, 'RATE_LIMITED');
   const release = await releaseById(env.DB, report.releaseId);
   if (!release?.promoted) fail(404, 'NOT_FOUND');
-  await env.DB.prepare(`INSERT INTO event_totals(release_id, event, count) VALUES(?, ?, 1)
-    ON CONFLICT(release_id, event) DO UPDATE SET count = count + 1`)
-    .bind(report.releaseId, report.event).run();
+  const metrics=report.metrics;
+  await env.DB.prepare(`INSERT INTO event_totals(release_id, event, count, measured, duration_ms, bytes, retries, max_duration_ms, wifi, cellular, unknown_connection)
+    VALUES(?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(release_id, event) DO UPDATE SET count = count + 1, measured = measured + excluded.measured,
+      duration_ms = duration_ms + excluded.duration_ms, bytes = bytes + excluded.bytes,
+      retries = retries + excluded.retries, max_duration_ms = max(max_duration_ms, excluded.max_duration_ms),
+      wifi = wifi + excluded.wifi, cellular = cellular + excluded.cellular,
+      unknown_connection = unknown_connection + excluded.unknown_connection`)
+    .bind(report.releaseId, report.event, metrics ? 1 : 0, metrics?.durationMs ?? 0,
+      metrics?.bytes ?? 0, metrics?.retries ?? 0, metrics?.durationMs ?? 0,
+      metrics?.connection==='wifi'?1:0,metrics?.connection==='cellular'?1:0,metrics?.connection==='unknown'?1:0).run();
   return new Response(null, {status: 204, headers: cors});
 }
 

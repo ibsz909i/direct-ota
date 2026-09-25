@@ -40,5 +40,6 @@ export function errorResponse(error: unknown): Response {
   if(code==='42501')return json({error:'PUBLISHER_DENIED'},403);
   if(code==='23514'||code==='22P02')return json({error:'INVALID_STATE'},400);
   if(code==='54000')return json({error:'CAPACITY_LIMIT'},429);
+  if(code==='P0002')return json({error:'NOT_FOUND'},404);
   return json({error:'OTA_UNAVAILABLE'},503);
 }

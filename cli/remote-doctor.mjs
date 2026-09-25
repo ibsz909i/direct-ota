@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {verifyManifest, OTA_MAX_ARCHIVE_BYTES} from '../dist/protocol.js';
+import {verifyManifest, effectiveLimits} from '../dist/protocol.js';
 import {boundedJson} from './transport.mjs';
 import {selector} from './releases.mjs';
 
@@ -12,8 +12,8 @@ async function request(url, options) {
   return response;
 }
 
-async function readArtifact(response, expectedBytes) {
-  if (Number(response.headers.get('content-length')) !== expectedBytes || expectedBytes > OTA_MAX_ARCHIVE_BYTES) {
+async function readArtifact(response, expectedBytes, maxBytes) {
+  if (Number(response.headers.get('content-length')) !== expectedBytes || expectedBytes > maxBytes) {
     await response.body?.cancel();
     throw new Error('Remote artifact size differs from the signed manifest');
   }
@@ -60,7 +60,7 @@ export async function verifyRemote(root, config, options) {
   }
   if (rangeBytes !== 1) throw new Error('Remote byte range did not return one byte');
   const full = await request(manifest.artifact.url, {method: 'GET'});
-  const artifact = await readArtifact(full, manifest.artifact.bytes);
+  const artifact = await readArtifact(full, manifest.artifact.bytes, effectiveLimits(config).archiveBytes);
   if (artifact.sha256 !== manifest.artifact.sha256 || artifact.firstByte !== rangeByte) {
     throw new Error('Remote artifact hash differs from the signed manifest');
   }

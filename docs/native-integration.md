@@ -1,5 +1,7 @@
 # Native integration
 
+Larger bundles require a new native build. Set all three public `limits` in `direct-ota.config.json` before running `direct-ota native`, then deploy that exact public trust object to the provider. The generated `directOtaMax*` settings pin the limit in each native binary. Older native builds keep their original limit and runtime, so do not promote an oversized archive to their channel.
+
 Direct OTA's native client supports Capacitor 8 on iOS and Android with `@capgo/capacitor-updater` pinned to `8.51.25`. Other host frameworks need their own native verifier, downloader, activation guard, and readiness bridge before they can use this client. The HTTP backend contract is separate from the host framework.
 
 ## Install and configure
@@ -41,6 +43,7 @@ import project from './direct-ota.config.json';
 const updater = await startUpdater({
   checkUrl: project.checkUrl,
   eventsUrl: project.eventsUrl,
+  checkIntervalMinutes: 15, // optional; 5–60 minutes
 });
 const stopUi = mountUpdateUi({
   coordinator: updater.coordinator,
@@ -62,6 +65,8 @@ try { await saveOpenForm(); } finally { finish(); }
 `mountUpdateUi` is optional. It accepts all visible strings from the host, supports RTL, gives progress and recovery controls, and blocks the app while an already verified mandatory update is active. `startUpdater` installs a conservative DOM guard for edited forms and open modal dialogs. For a custom interaction model, pass `protectDom:false` and use the activity guard around critical work. An app can subscribe to `updater.coordinator` to render its own UI.
 
 `markReady` is idempotent. It waits two animation frames, probes local storage, then calls native `otaReady` and starts checks. An invalid or missing native trust configuration makes `startUpdater` reject with `OTA_CONFIG`; the host should display a configuration error and avoid using legacy Capgo download or activation APIs. Native patch gates reject those APIs even when configuration is invalid.
+
+When an app receives a push hint or the user asks to check, call `updater.coordinator.hint()`. The hint contains no release instructions: it only requests the normal signed metadata check and is throttled to one request per 30 seconds. Successful scheduled checks use the configured 5–60 minute interval plus jitter; the default remains 15 minutes.
 
 ## Retry, consent, and compatibility
 

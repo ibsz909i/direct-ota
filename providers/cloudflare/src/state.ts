@@ -1,4 +1,4 @@
-import type {OtaArtifact, OtaManifest, OtaSelector} from './protocol.ts';
+import {historyItem, type OtaArtifact, type OtaManifest, type OtaSelector, type OtaHistoryRequest} from './protocol.ts';
 import {fail} from './security.ts';
 
 export const selectorKey = (s: OtaSelector): string => `${s.platform}:${s.channel}:${s.runtime}`;
@@ -31,6 +31,17 @@ export async function consumeCommand(db: D1Database, nonce: string, exp: number)
 
 export async function releaseById(db: D1Database, id: string): Promise<Release | null> {
   return db.prepare('SELECT * FROM releases WHERE id = ?').bind(id).first<Release>();
+}
+export async function history(db: D1Database, query: OtaHistoryRequest) {
+  const rows=await db.prepare(`SELECT payload FROM releases WHERE selector=? AND promoted=1 AND sequence<?
+    ORDER BY sequence DESC LIMIT ?`).bind(selectorKey(query),query.beforeSequence??Number.MAX_SAFE_INTEGER,query.limit+1)
+    .all<{payload:string}>();
+  const items=rows.results.slice(0,query.limit).map(row=>historyItem(JSON.parse(row.payload) as OtaManifest));
+  return {items,nextCursor:rows.results.length>query.limit?items.at(-1)!.sequence:null,scope:'remote' as const};
+}
+export async function inspect(db: D1Database, releaseId: string) {
+  const row=await db.prepare('SELECT payload FROM releases WHERE id=? AND promoted=1').bind(releaseId).first<{payload:string}>();
+  return row?historyItem(JSON.parse(row.payload) as OtaManifest):null;
 }
 
 export async function promotedPath(db: D1Database, path: string): Promise<Release | null> {

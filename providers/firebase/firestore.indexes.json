@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "direct_ota_audit",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "selector", "order": "ASCENDING"},
+        {"fieldPath": "sequence", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

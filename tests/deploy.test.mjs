@@ -53,7 +53,7 @@ test('Firebase deployment preflight scopes to dedicated project, bucket and serv
   await assert.rejects(guidedDeploy(root,{...options,apply:true},run),/--dedicated/);
   await guidedDeploy(root,{...options,apply:true,dedicated:true},run);
   assert.equal(commands.length,5);
-  assert(commands.some(({args}) => args.includes('functions:direct-ota:directOta,hosting,firestore:rules,storage')));
+  assert(commands.some(({args}) => args.includes('functions:direct-ota:directOta,hosting,firestore:rules,firestore:indexes,storage')));
   assert(commands.filter(({args}) => args.includes('functions:secrets:set')).every(({args}) => args.includes('--data-file')));
   assert.match(await readFile(join(root,'ota-service/functions/.env.demo-direct-ota'),'utf8'),/OTA_EVENTS_ENABLED=false/);
 });

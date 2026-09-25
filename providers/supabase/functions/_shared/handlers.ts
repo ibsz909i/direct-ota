@@ -1,4 +1,4 @@
-import {exactKeys,object,validateSelector,verifyManifest,verifyPublishCommand,type OtaTrust,type OtaArtifact} from './protocol.ts';
+import {exactKeys,object,validateSelector,validateHistoryRequest,OTA_UUID,verifyManifest,verifyPublishCommand,type OtaTrust,type OtaArtifact} from './protocol.ts';
 import {admission,deny,errorResponse,json,preflight,readJson} from './http.ts';
 type Row={platform:string;channel:string;runtime:string;manifest:string};
 const key=(s:{platform:string;channel:string;runtime:string})=>`${s.platform}:${s.channel}:${s.runtime}`;
@@ -41,9 +41,16 @@ export function createPublishHandler(deps:{trust:OtaTrust;command:(args:Record<s
       let manifest=null;
       try{
         if(cmd.action==='status')validateSelector(cmd.body);
+        else if(cmd.action==='history')validateHistoryRequest(cmd.body);
+        else if(cmd.action==='inspect'){
+          exactKeys(cmd.body,['releaseId']);
+          if(typeof cmd.body.releaseId!=='string'||!OTA_UUID.test(cmd.body.releaseId))deny(400,'INVALID_REQUEST');
+        }
         else{exactKeys(cmd.body,cmd.action==='reserve'?['manifest']:['manifest','expectedSequence']);manifest=await verifyManifest(cmd.body.manifest as string,deps.trust);if(cmd.action==='promote'&&(!Number.isSafeInteger(cmd.body.expectedSequence)||(cmd.body.expectedSequence as number)<0||manifest.sequence!==(cmd.body.expectedSequence as number)+1))deny(400,'INVALID_SEQUENCE');}
       }catch{deny(400,'INVALID_MANIFEST');}
       if(cmd.action==='reserve'&&manifest?.action!=='release')deny(400,'NO_ARTIFACT');
+      if(cmd.action==='history'||cmd.action==='inspect')return json(await deps.command({p_key_id:deps.trust.keyId,p_nonce:cmd.nonce,
+        p_expires_at:new Date(cmd.exp*1000).toISOString(),p_action:cmd.action,p_selector:cmd.body}));
       if(cmd.action==='promote'&&manifest?.action==='release'&&!await deps.inspect(manifest.artifact))deny(400,'INCOMPLETE_ARTIFACT');
       const verified=cmd.action==='promote'&&manifest?.action==='release'?manifest.artifact:null;
       const result=await deps.command({p_key_id:deps.trust.keyId,p_nonce:cmd.nonce,p_expires_at:new Date(cmd.exp*1000).toISOString(),p_action:cmd.action,p_manifest:manifest?cmd.body.manifest:null,p_payload:manifest,p_selector:cmd.action==='status'?cmd.body:null,p_expected_sequence:cmd.action==='promote'?cmd.body.expectedSequence:null,p_verified_sha256:verified?.sha256??null,p_verified_bytes:verified?.bytes??null});

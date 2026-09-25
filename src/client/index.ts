@@ -27,7 +27,8 @@ export async function startUpdater(options:UpdaterOptions):Promise<UpdaterHandle
   const initial=await bridge.otaState();
   if(!initial.enabled)throw Error('OTA_CONFIG');
   const guard=options.guard??updateActivity;
-  const coordinator=new UpdateCoordinator(bridge,{checkUrl:options.checkUrl,eventsUrl:options.eventsUrl},guard);
+  const coordinator=new UpdateCoordinator(bridge,{checkUrl:options.checkUrl,eventsUrl:options.eventsUrl,
+    checkIntervalMinutes:options.checkIntervalMinutes},guard);
   const dom=options.protectDom===false?undefined:installUpdateDomGuard(document,guard);
   const unsubscribe=options.onView?coordinator.subscribe(()=>options.onView?.(coordinator.getSnapshot())):()=>{};
   options.onView?.(coordinator.getSnapshot());

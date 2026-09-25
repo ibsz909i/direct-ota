@@ -28,5 +28,5 @@ test('doctor rejects stale native settings even when the recorded runtime matche
  const generated=join(root,'direct-ota.capacitor.json');const altered=JSON.parse(await readFile(generated,'utf8'));altered.autoUpdate='always';
  await writeFile(generated,JSON.stringify(altered));await assert.rejects(verifyNativeProject(root,config),/Generated native plugin/);
  await writeFile(generated,JSON.stringify(result.plugin));await writeFile(join(root,'native-source.txt'),'changed native source');
- await assert.rejects(verifyNativeProject(root,config),/runtime drift/);
+ await assert.rejects(verifyNativeProject(root,config),/runtime drift detected; changed inputs: native-source.txt/);
 });

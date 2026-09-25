@@ -84,6 +84,24 @@ test('archive scanner excludes credentials, maps, links and oversized files',asy
  assert.equal(JSON.parse(run('good.zip')).files,1);
  await writeFile(join(root,'web/app.map'),'{}');assert.throws(()=>run('map.zip'));await rm(join(root,'web/app.map'));
  await writeFile(join(root,'web/app.js'),'-----BEGIN PRIVATE KEY-----');assert.throws(()=>run('key.zip'));await rm(join(root,'web/app.js'));
+ await writeFile(join(root,'web/cafe\u0301.html'),'Unicode alias');assert.throws(()=>run('unicode.zip'));await rm(join(root,'web/cafe\u0301.html'));
+ await writeFile(join(root,'web/bad\nname.html'),'Control character');assert.throws(()=>run('control.zip'));await rm(join(root,'web/bad\nname.html'));
  await symlink('index.html',join(root,'web/link.html'));assert.throws(()=>run('link.zip'));await rm(join(root,'web/link.html'));
  await writeFile(join(root,'web/large.bin'),Buffer.alloc(26214401));assert.throws(()=>run('large.zip'));
+});
+
+test('project scanner markers cannot disable built-in credential checks',async t=>{
+ const root=await fixture(t);await mkdir(join(root,'web'));
+ await writeFile(join(root,'web/index.html'),'<main>MY_INTERNAL_MARKER</main>');
+ const policy=join(root,'scanner.json');
+ const run=dest=>execFileSync('python3',['cli/package.py',join(root,'web'),join(root,dest),policy],{encoding:'utf8',stdio:['ignore','pipe','pipe']});
+ await writeFile(policy,JSON.stringify({deny:['MY_INTERNAL_MARKER']}));
+ assert.throws(()=>run('blocked.zip'));
+ await writeFile(policy,JSON.stringify({deny:['MY_INTERNAL_MARKER'],allowFiles:['index.html']}));
+ assert.equal(JSON.parse(run('allowed.zip')).files,1);
+ await writeFile(join(root,'web/index.html'),'-----BEGIN PRIVATE KEY-----');
+ assert.throws(()=>run('secret.zip'));
+ const config=await initProject(join(root,'host'),{appId:'app.example.demo',baseUrl:'https://updates.example.invalid'});
+ assert.throws(()=>validateConfig({...config,scanner:{deny:['x']}}),/scanner/);
+ assert.throws(()=>validateConfig({...config,scanner:{allowFiles:['../outside']}}),/scanner/);
 });

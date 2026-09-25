@@ -5,7 +5,7 @@ import {constants, unlinkSync} from 'node:fs';
 import {mkdir, lstat, readFile, writeFile, open, link, unlink, readdir} from 'node:fs/promises';
 import {resolve, join} from 'node:path';
 import {pipeline} from 'node:stream/promises';
-import {validateTrust, validateSelector, verifyManifest, verifyPublishCommand, object, exactKeys} from '../../dist/protocol.js';
+import {validateTrust, validateSelector, validateHistoryRequest, verifyManifest, verifyPublishCommand, object, exactKeys, OTA_UUID, historyItem} from '../../dist/protocol.js';
 
 class Failure extends Error { constructor(status, code) { super(code); this.status = status; } }
 const fail = (status, code) => { throw new Failure(status, code); };
@@ -75,6 +75,7 @@ export async function createOtaServer({trust, dataDir, uploadSecret, uploadBaseU
       CREATE INDEX IF NOT EXISTS nonce_expiry ON nonces(expires);
       CREATE TABLE IF NOT EXISTS releases (id TEXT PRIMARY KEY, signed TEXT NOT NULL, payload TEXT NOT NULL, selector TEXT NOT NULL, sequence INTEGER NOT NULL, path TEXT, bytes INTEGER NOT NULL, expires INTEGER NOT NULL, promoted INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS release_path ON releases(path,promoted);
+      CREATE INDEX IF NOT EXISTS release_history ON releases(selector,promoted,sequence DESC);
       CREATE TABLE IF NOT EXISTS heads (selector TEXT PRIMARY KEY, sequence INTEGER NOT NULL, release_id TEXT NOT NULL REFERENCES releases(id));
       CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, operation TEXT NOT NULL, release_id TEXT NOT NULL REFERENCES releases(id), sequence INTEGER NOT NULL);`);
     const fingerprint = digest(JSON.stringify([trust.appId,trust.environment,trust.backendContract,trust.artifactBaseUrl,trust.keyId,trust.publicJwk.x,trust.publicJwk.y]));
@@ -182,6 +183,18 @@ export async function createOtaServer({trust, dataDir, uploadSecret, uploadBaseU
           try { db.prepare('INSERT INTO nonces VALUES(?,?)').run(command.nonce,command.exp*1000); } catch(error) { if(error.code==='ERR_SQLITE_ERROR' && error.message.includes('UNIQUE')) fail(409,'REPLAY'); throw error; }
         });
         if(command.action==='status') { let selected; try {selected=validateSelector(command.body);} catch {fail(400,'INVALID_REQUEST');} json(res,200,head(selected)); return; }
+        if(command.action==='history') {
+          let query;try{query=validateHistoryRequest(command.body);}catch{fail(400,'INVALID_REQUEST');}
+          const rows=db.prepare('SELECT payload FROM releases WHERE selector=? AND promoted=1 AND sequence<? ORDER BY sequence DESC LIMIT ?')
+            .all(selectorKey(query),query.beforeSequence??Number.MAX_SAFE_INTEGER,query.limit+1);
+          const items=rows.slice(0,query.limit).map(row=>historyItem(JSON.parse(row.payload)));
+          json(res,200,{items,nextCursor:rows.length>query.limit?items.at(-1).sequence:null,scope:'remote'});return;
+        }
+        if(command.action==='inspect') {
+          let id;try{exactKeys(command.body,['releaseId']);id=command.body.releaseId;if(typeof id!=='string'||!OTA_UUID.test(id))throw Error();}catch{fail(400,'INVALID_REQUEST');}
+          const row=db.prepare('SELECT payload FROM releases WHERE id=? AND promoted=1').get(id);
+          if(!row)fail(404,'NOT_FOUND');json(res,200,historyItem(JSON.parse(row.payload)));return;
+        }
         let m;
         try { exactKeys(command.body,command.action==='reserve'?['manifest']:['manifest','expectedSequence']); m=await verifyManifest(command.body.manifest,trust); } catch {fail(400,'INVALID_MANIFEST');}
         const signed=command.body.manifest;

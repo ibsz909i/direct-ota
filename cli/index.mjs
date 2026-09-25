@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import {readConfig, readIdentity, initProject} from './config.mjs';
 import {exportProvider} from './provider.mjs';
 import {command} from './transport.mjs';
-import {selector, prepare, upload, promote, instruction} from './releases.mjs';
+import {selector, prepare, upload, promote, instruction, inspectRelease, localHistory} from './releases.mjs';
 
 const help = `Direct OTA — signed updates on your infrastructure
 
@@ -19,13 +19,17 @@ direct-ota native --channel internal|production
 direct-ota patch
 direct-ota doctor [--fix] [--remote --platform ios|android] [--channel internal]
 direct-ota test-provider [--write]  (write mode uses a synthetic runtime; use an isolated service)
-direct-ota publish --platform ios|android --version 1.0.1 [--out DIR]
-direct-ota prepare --platform ios|android --version 1.0.1 [--channel internal] [--rollout 100] [--out DIR]
+direct-ota publish --platform ios|android --version 1.0.1 [--mode required|background] [--out DIR]
+direct-ota prepare --platform ios|android --version 1.0.1 [--channel internal] [--rollout 100] [--mode required|background] [--out DIR]
 direct-ota upload --release DIR
 direct-ota promote --release DIR
 direct-ota status --platform ios|android [--channel internal]
 direct-ota health --release-id UUID  (signed, opt-in aggregate reports)
-direct-ota rollout --from DIR --platform ios|android --channel production --rollout 1|5|25|100
+direct-ota history [--platform ios|android] [--limit 20] [--cursor UUID]  (local signed candidates)
+direct-ota history --remote --platform ios|android [--channel internal] [--limit 20] [--cursor SEQUENCE]
+direct-ota inspect --release DIR  (local signed candidate)
+direct-ota inspect --remote --release-id UUID  (promoted remote release)
+direct-ota rollout --from DIR --platform ios|android --channel production --rollout 1|5|25|100 [--health-gate --gate-min-ready 10 --gate-max-failures 0]
 direct-ota rollback --from DIR --platform ios|android --channel production
 direct-ota withdraw --platform ios|android --channel production
 
@@ -37,9 +41,9 @@ See docs/quickstart.md and AGENTS.md for setup and release rules.
 `;
 try {
   const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries([
-    'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','rollout','release-id','name','account-id','target','bucket'
+    'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','rollout','release-id','name','account-id','target','bucket','limit','cursor','gate-min-ready','gate-max-failures','mode'
   ].map(name => [name, {type: 'string'}]).concat([
-    ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}], ['remote', {type:'boolean'}], ['write', {type:'boolean'}], ['apply', {type:'boolean'}], ['dedicated', {type:'boolean'}], ['fix', {type:'boolean'}], ['finish', {type:'boolean'}]
+    ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}], ['remote', {type:'boolean'}], ['write', {type:'boolean'}], ['apply', {type:'boolean'}], ['dedicated', {type:'boolean'}], ['fix', {type:'boolean'}], ['finish', {type:'boolean'}], ['health-gate', {type:'boolean'}]
   ]))});
   const action = positionals[0];
   if (!action || values.help) { console.log(help); process.exit(0); }
@@ -117,8 +121,23 @@ try {
         else { console.error(formatDoctorReport(report)); process.exitCode = 1; }
       }
     } else {
-      const identity = await readIdentity(root, config, values.identity);
+      const identity = ['history','inspect'].includes(action) && !values.remote ? null : await readIdentity(root, config, values.identity);
       if (action === 'status') console.log(JSON.stringify(await command(config, identity, 'status', await selector(root, values)), null, 2));
+      else if (action === 'history') console.log(JSON.stringify(values.remote ?
+        await command(config, identity, 'history', {...await selector(root, values),
+          limit: values.limit === undefined ? 20 : Number(values.limit),
+          ...(values.cursor === undefined ? {} : {beforeSequence:Number(values.cursor)})}) :
+        await localHistory(root, config, {platform: values.platform,
+          limit: values.limit === undefined ? 20 : Number(values.limit), cursor: values.cursor}), null, 2));
+      else if (action === 'inspect') {
+        if (values.remote) {
+          if (!values['release-id'] || values.release) throw new Error('Specify --release-id UUID for remote inspect');
+          console.log(JSON.stringify(await command(config, identity, 'inspect', {releaseId:values['release-id']}), null, 2));
+        } else {
+          if (!values.release || values['release-id']) throw new Error('Specify --release DIR for local inspect');
+          console.log(JSON.stringify(await inspectRelease(resolve(root, values.release), config), null, 2));
+        }
+      }
       else if (action === 'health') {
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(values['release-id'] || ''))
           throw new Error('Specify --release-id UUID');
@@ -138,7 +157,7 @@ try {
         const result = await (action === 'upload' ? upload : promote)(resolve(root, values.release), config, identity);
         console.log(result ? JSON.stringify(result) : 'Immutable artifact uploaded. It is not active until promoted.');
       } else if (['rollout', 'rollback', 'withdraw'].includes(action)) {
-        console.log(JSON.stringify(await instruction(root, config, identity, values, action === 'withdraw' ? 'withdraw' : 'release')));
+        console.log(JSON.stringify(await instruction(root, config, identity, values, action)));
       } else throw new Error('Unknown command. Use --help.');
     }
   }

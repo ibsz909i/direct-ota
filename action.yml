@@ -1,0 +1,27 @@
+name: Direct OTA internal publish
+description: Build and publish one signed internal web-bundle update from a configured Capacitor app.
+inputs:
+  platform:
+    description: ios or android
+    required: true
+  version:
+    description: SemVer version shown by the installed app
+    required: true
+  identity-base64:
+    description: Base64 encoding of the app's private Direct OTA identity JSON
+    required: true
+  project:
+    description: App directory relative to the GitHub workspace
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - name: Publish signed internal update
+      shell: bash
+      env:
+        DIRECT_OTA_PLATFORM: ${{ inputs.platform }}
+        DIRECT_OTA_VERSION: ${{ inputs.version }}
+        DIRECT_OTA_IDENTITY_B64: ${{ inputs.identity-base64 }}
+        DIRECT_OTA_PROJECT: ${{ inputs.project }}
+      run: node "$GITHUB_ACTION_PATH/scripts/action-publish.mjs"

@@ -66,7 +66,8 @@ export async function guidedDeploy(root, options = {}, run = execute) {
   const firebase = JSON.parse(await readFile(join(service, 'firebase.json'), 'utf8'));
   if (firebase.functions?.codebase !== 'direct-ota' || !firebase.hosting?.rewrites?.some(row => row.source === '/artifacts/**'))
     throw Error('Firebase provider export is incomplete');
-  const plan = `Firebase project ${projectId}: set two Function secrets and OTA_BUCKET_NAME=${bucketName}; deploy the Direct OTA function, Hosting rewrites, and deny-all Firestore/Storage rules. The project must be dedicated to OTA and already have Firestore, a private bucket, and Blaze billing. No project or bucket is created.`;
+  if (firebase.firestore?.indexes !== 'firestore.indexes.json') throw Error('Firebase history index configuration is missing');
+  const plan = `Firebase project ${projectId}: set two Function secrets and OTA_BUCKET_NAME=${bucketName}; deploy the Direct OTA function, Hosting rewrites, history index, and deny-all Firestore/Storage rules. The project must be dedicated to OTA and already have Firestore, a private bucket, and Blaze billing. No project or bucket is created.`;
   if (!options.apply) return {applied: false, plan};
   if (!options.dedicated) throw Error('Pass --dedicated after confirming this is an update-only Firebase project');
   const envFile = join(service, 'functions', `.env.${projectId}`);
@@ -83,6 +84,6 @@ export async function guidedDeploy(root, options = {}, run = execute) {
   run('npm', ['run', 'build', '--prefix', join(service, 'functions')], {cwd: service});
   call(['functions:secrets:set', 'OTA_TRUST_JSON', '--data-file', trustFile]);
   call(['functions:secrets:set', 'OTA_UPLOAD_SECRET', '--data-file', secretFile]);
-  call(['deploy', '--only', 'functions:direct-ota:directOta,hosting,firestore:rules,storage']);
+  call(['deploy', '--only', 'functions:direct-ota:directOta,hosting,firestore:rules,firestore:indexes,storage']);
   return {applied: true, plan};
 }

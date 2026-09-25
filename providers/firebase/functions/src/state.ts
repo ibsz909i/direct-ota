@@ -3,7 +3,7 @@ import type {Firestore} from 'firebase-admin/firestore';
 import {getStorage} from 'firebase-admin/storage';
 import {createProvider, providerFail, type ProviderAdapter} from './provider.js';
 import {OTA_SUCCESS_SAMPLE_RATE, validateEvent} from './telemetry.js';
-import {OTA_MAX_ARCHIVE_BYTES, OTA_HASH, OTA_UUID, validateTrust,
+import {OTA_ABSOLUTE_LIMITS, OTA_HASH, OTA_UUID, validateTrust, verifyManifest, historyItem,
   type OtaArtifact, type OtaManifest, type OtaSelector, type OtaTrust} from './protocol.js';
 
 type Bucket = ReturnType<ReturnType<typeof getStorage>['bucket']>;
@@ -39,7 +39,7 @@ function verifyCapability(secret: Buffer, token: string): Claim {
   if (!claim || typeof claim !== 'object' || Object.keys(claim).sort().join(',') !== 'bytes,exp,path,releaseId,sha256' ||
       typeof claim.path !== 'string' || typeof claim.sha256 !== 'string' || !OTA_HASH.test(claim.sha256) ||
       typeof claim.releaseId !== 'string' || !OTA_UUID.test(claim.releaseId) ||
-      !Number.isSafeInteger(claim.bytes) || claim.bytes < 1 || claim.bytes > OTA_MAX_ARCHIVE_BYTES ||
+      !Number.isSafeInteger(claim.bytes) || claim.bytes < 1 || claim.bytes > OTA_ABSOLUTE_LIMITS.archiveBytes ||
       !Number.isSafeInteger(claim.exp) || claim.exp <= Date.now() || claim.exp > Date.now() + 900000)
     providerFail(403, 'UPLOAD_DENIED');
   return claim;
@@ -122,10 +122,30 @@ export function createFirebaseProvider({db, bucket, trust, uploadSecret, publish
       return task;
     },
     status,
+    async history(query) {
+      let request=audit.where('selector','==',selectorId(query)).orderBy('sequence','desc');
+      if(query.beforeSequence!==undefined)request=request.where('sequence','<',query.beforeSequence);
+      const snapshot=await request.limit(query.limit+1).get();
+      const rows=snapshot.docs.slice(0,query.limit);
+      const releasesById=rows.length?await db.getAll(...rows.map(row=>releases.doc(row.id))):[];
+      const items=await Promise.all(releasesById.map(async row=>{
+        const signed=row.data()?.signed;
+        if(typeof signed!=='string'||!row.data()?.promoted)throw Error('Corrupt OTA release history');
+        return historyItem(await verifyManifest(signed,trust,query));
+      }));
+      return {items,nextCursor:snapshot.docs.length>query.limit?items.at(-1)!.sequence:null,scope:'remote'};
+    },
+    async inspect(releaseId) {
+      const [record,history]=await Promise.all([releases.doc(releaseId).get(),audit.doc(releaseId).get()]);
+      const signed=record.data()?.signed;
+      if(!history.exists||!record.data()?.promoted||typeof signed!=='string')return null;
+      return historyItem(await verifyManifest(signed,trust));
+    },
     async health(releaseId) {
       const snapshot = await eventTotals.doc(releaseId).get();
       const counts = snapshot.data()?.counts;
       return {releaseId, counts: counts && typeof counts === 'object' ? counts : {},
+        metrics: snapshot.data()?.metrics ?? {},
         sampledSuccessRate: OTA_SUCCESS_SAMPLE_RATE};
     },
     async consumeNonce(nonce, expiresAtMs) {
@@ -218,8 +238,27 @@ export function createFirebaseProvider({db, bucket, trust, uploadSecret, publish
           if (!Number.isSafeInteger(count) || count >= 120) providerFail(429, 'RATE_LIMITED');
           const prior = totalsRow.data()?.counts?.[report.event] ?? 0;
           if (!Number.isSafeInteger(prior) || prior < 0) throw Error('Corrupt OTA event total');
+          const previous = totalsRow.data()?.metrics?.[report.event] ?? {};
+          const bounded = (key: 'measured'|'durationMs'|'bytes'|'retries'|'maxDurationMs') => {
+            const value = previous[key] ?? 0;
+            if (!Number.isSafeInteger(value) || value < 0) throw Error('Corrupt OTA event metric');
+            return value as number;
+          };
+          const metric = report.metrics;
+          const aggregate = {measured:bounded('measured')+(metric ? 1 : 0),
+            durationMs:bounded('durationMs')+(metric?.durationMs ?? 0),
+            bytes:bounded('bytes')+(metric?.bytes ?? 0),
+            retries:bounded('retries')+(metric?.retries ?? 0),
+            maxDurationMs:Math.max(bounded('maxDurationMs'),metric?.durationMs ?? 0),
+            connections:Object.fromEntries(['wifi','cellular','unknown'].map(type=>{
+              const old=previous.connections?.[type]??0;
+              if(!Number.isSafeInteger(old)||old<0)throw Error('Corrupt OTA event metric');
+              return [type,old+(metric?.connection===type?1:0)];
+            }))};
+          if ([...Object.values(aggregate).filter(value=>typeof value==='number'),...Object.values(aggregate.connections)]
+            .some(value => !Number.isSafeInteger(value))) throw Error('OTA event metric overflow');
           tx.set(eventGate, {minute, count: count + 1});
-          tx.set(totalRef, {counts: {[report.event]: prior + 1}}, {merge: true});
+          tx.set(totalRef, {counts: {[report.event]: prior + 1}, metrics: {[report.event]: aggregate}}, {merge: true});
         });
         return new Response(null, {status: 204, headers: cors});
       }

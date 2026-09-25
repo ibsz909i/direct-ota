@@ -54,11 +54,11 @@ A conflict is HTTP 409. Do not silently retry with a new expected sequence or ov
 
 The protected header uses `typ: "DIRECT-OTA"` and the pinned ES256 key. The payload binds `protocol`, `appId`, `environment`, `platform`, `channel`, `sequence`, `runtime`, `backendContract`, `action`, `rollout`, `releaseId`, `version`, and `issuedAt`.
 
-`action: "release"` additionally includes `artifact`: immutable path and HTTPS URL, SHA-256 of the encrypted bytes, byte size, expanded size, file count, and the pinned Capgo format's checksum/session key. `action: "withdraw"` has no artifact. See the TypeScript types for exact formats and bounds.
+`action: "release"` additionally includes `artifact`: immutable path and HTTPS URL, SHA-256 of the encrypted bytes, byte size, expanded size, file count, and the pinned Capgo format's checksum/session key. A release may include signed `mode: "background"`; absent or `"required"` preserves the mandatory behavior. Background updates download on Wi-Fi without blocking and activate when a new app process starts. A rollback instruction is always required. `action: "withdraw"` has no artifact or mode. See the TypeScript types for exact formats and bounds.
 
 Paths are `platform/runtime/original-release-UUID/ciphertext-sha256.zip`. URL must equal the native-pinned artifact base plus that path. A rollback uses a new sequence and instruction UUID while retaining the previously promoted artifact path.
 
-Limits: 5 MiB encrypted archive, 25 MiB expanded content, 1,000 files, 8 KiB compact manifest. Archive installation also rejects unsafe paths and links. API limits must be enforced independently of JavaScript checks.
+Default limits: 5 MiB encrypted archive, 25 MiB expanded content, 1,000 files, 8 KiB compact manifest. A native build may pin larger `limits` in `direct-ota.config.json`: `archiveBytes` up to 50 MiB, `unpackedBytes` up to 100 MiB, and `files` up to 5,000. All three values are required together, and cannot be below the defaults. The same pinned values must be deployed as provider trust and compiled into the native plugin settings; a web update cannot raise them. Archive entries must be regular files with canonical NFC names, at most 1,024 UTF-8 bytes and 32 path segments. Empty, dot, parent, absolute, control-character, colon, and backslash path components are rejected, as are links and duplicate names. API limits must be enforced independently of JavaScript checks.
 
 ## Artifact transport
 
@@ -71,3 +71,5 @@ The reference endpoints serve distributable bundles publicly. An alternative acc
 Use bounded JSON errors without stack traces, database details, credentials, or account information. Recommended statuses: 400 malformed input, 401/403 invalid authorization, 409 sequence/artifact conflict, 413 size limit, 429 admission limit, 503 temporary failure.
 
 Telemetry is optional. It must never authorize a release or automatic server rollback. Treat reports as untrusted, avoid account identifiers and transaction content, bound event sizes, and rate-limit collection. The supplied core works without an events endpoint.
+
+The optional event body contains a promoted `releaseId`, an allowed event name, and optionally `metrics` with bounded nonnegative `durationMs`, `bytes`, `retries`, and `connection` (`wifi`, `cellular`, or `unknown`). The coordinator reports download attempt duration and the native received-byte progress; resumed partial bytes can already be included, so this is not an egress meter. The ready event measures time from coordinator startup. Event collectors aggregate these values and never retain installation identifiers. Success reports use a deterministic 1% device sample; failure reports are unsampled. Neither set can establish a trustworthy eligible-installation count or a verified success rate.

@@ -33,12 +33,16 @@ final class DirectOtaController {
     private var environment: String { host?.getConfig().getString("directOtaEnvironment", "") ?? "" }
     private var artifactBaseUrl: String { host?.getConfig().getString("directOtaArtifactBaseUrl", "") ?? "" }
     private var backendContract: Int { host?.getConfig().getInt("directOtaBackendContract", 0) ?? 0 }
+    private var limits: DirectOtaLimits { DirectOtaLimits(
+        archiveBytes: host?.getConfig().getInt("directOtaMaxArchiveBytes", 5242880) ?? 5242880,
+        unpackedBytes: host?.getConfig().getInt("directOtaMaxUnpackedBytes", 26214400) ?? 26214400,
+        files: host?.getConfig().getInt("directOtaMaxFiles", 1000) ?? 1000) }
     var enabled: Bool {
         guard runtime.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
               ["internal", "production"].contains(channel),
               appId.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", options: .regularExpression) != nil,
               environment.range(of: "^[A-Za-z0-9_-]{1,40}$", options: .regularExpression) != nil,
-              backendContract > 0, let url = URL(string: artifactBaseUrl),
+              backendContract > 0, limits.valid, let url = URL(string: artifactBaseUrl),
               url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil, url.absoluteString == artifactBaseUrl,
               url.path.range(of: "^/[A-Za-z0-9/_-]*$", options: .regularExpression) != nil,
@@ -69,7 +73,7 @@ final class DirectOtaController {
     deinit { monitor.cancel(); transfer?.cancel(); readyTimer?.invalidate() }
     private func verify(_ value: String) throws -> DirectOtaManifest {
         guard let host, enabled else { throw DirectOtaFailure.invalid }
-        return try DirectOtaProtocol.verify(value, keyId: host.getConfig().getString("directOtaKeyId", "") ?? "", x: host.getConfig().getString("directOtaKeyX", "") ?? "", y: host.getConfig().getString("directOtaKeyY", "") ?? "", appId: appId, environment: environment, artifactBaseUrl: artifactBaseUrl, backendContract: backendContract, runtime: runtime, channel: channel)
+        return try DirectOtaProtocol.verify(value, keyId: host.getConfig().getString("directOtaKeyId", "") ?? "", x: host.getConfig().getString("directOtaKeyX", "") ?? "", y: host.getConfig().getString("directOtaKeyY", "") ?? "", appId: appId, environment: environment, artifactBaseUrl: artifactBaseUrl, backendContract: backendContract, runtime: runtime, channel: channel, limits: limits)
     }
     private func bundleId(_ hash: String) -> String { "do" + String(hash.prefix(30)) }
     private var quarantine: [String] { defaults.stringArray(forKey: key + ".quarantine") ?? [] }
@@ -96,7 +100,7 @@ final class DirectOtaController {
         recover()
         let current = host?.implementation.getCurrentBundleId() ?? "builtin"
         var output: JSObject = ["enabled": enabled, "platform": "ios", "runtime": runtime, "channel": channel, "connection": connection, "phase": phase, "received": received, "installationId": installation, "current": current]
-        if let token, let m = manifest { output["manifest"] = token; output["total"] = m.artifact?.bytes ?? 0; output["version"] = m.version; output["releaseId"] = m.releaseId; output["cellularAllowed"] = defaults.bool(forKey: key + ".cellular." + (m.artifact?.sha256 ?? "")) }
+        if let token, let m = manifest { output["manifest"] = token; output["total"] = m.artifact?.bytes ?? 0; output["version"] = m.version; output["releaseId"] = m.releaseId; output["mode"] = m.mode ?? "required"; output["cellularAllowed"] = defaults.bool(forKey: key + ".cellular." + (m.artifact?.sha256 ?? "")) }
         if let error { output["error"] = error }
         return output
     }
@@ -123,8 +127,9 @@ final class DirectOtaController {
         guard transfer == nil, !importing, !activationInProgress else { completion(DirectOtaFailure.busy); return }
         guard let m = manifest, let a = m.artifact, let host else { completion(DirectOtaFailure.invalid); return }
         let consentKey = key + ".cellular." + a.sha256
+        if cellular && m.mode == "background" { completion(DirectOtaFailure.paused); return }
         if cellular { defaults.set(true, forKey: consentKey) }
-        let allowed = defaults.bool(forKey: consentKey)
+        let allowed = m.mode != "background" && defaults.bool(forKey: consentKey)
         guard connection != "offline", connection != "unknown", allowed || connection == "wifi" else { phase = connection == "offline" ? "paused" : "wifi"; emit(); completion(DirectOtaFailure.paused); return }
         if imported(a.sha256) && !host.implementation.getBundleInfo(id: bundleId(a.sha256)).isErrorStatus() { phase = "ready"; emit(); completion(nil); return }
         do {
@@ -187,7 +192,7 @@ final class DirectOtaController {
         var names = Set<String>()
         for entry in archive {
             count += 1; size += UInt64(entry.uncompressedSize)
-            guard count <= 1000, size <= UInt64(a.unpackedBytes), size <= 26214400, entry.type != .symlink,
+            guard count <= limits.files, size <= UInt64(a.unpackedBytes), size <= UInt64(limits.unpackedBytes), entry.type == .file,
                   DirectOtaProtocol.safeEntry(entry.path), names.insert(entry.path).inserted else { throw DirectOtaFailure.invalid }
         }
         guard count == a.files, size == UInt64(a.unpackedBytes), names.contains("index.html") else { throw DirectOtaFailure.invalid }

@@ -39,3 +39,14 @@ test('promotion refuses failed artifact digest and forwards only verified hash/s
  assert.equal((await handler(request({command:command('promote',{manifest:signed,expectedSequence:0})}))).status,400);assert.equal(calls,0);
  valid=true;assert.equal((await handler(request({command:command('promote',{manifest:signed,expectedSequence:0})}))).status,200);assert.equal(calls,1);
 });
+test('signed history and inspect use bounded publisher-only RPC paths',async()=>{
+ const seen=[];const id=randomUUID();
+ const handler=createPublishHandler({trust,command:async args=>{seen.push(args);return args.p_action==='history'?{items:[],nextCursor:null,scope:'remote'}:{releaseId:id};},
+   inspect:async()=>{throw Error('No artifact inspection for history');},upload:async()=>{throw Error('No upload');}});
+ const history=await handler(request({command:command('history',{...selector,limit:20})}));
+ assert.equal(history.status,200);assert.equal(seen[0].p_action,'history');assert.deepEqual(seen[0].p_selector,{...selector,limit:20});
+ const inspected=await handler(request({command:command('inspect',{releaseId:id})}));
+ assert.equal(inspected.status,200);assert.equal(seen[1].p_action,'inspect');
+ assert.equal((await handler(request({command:command('history',{...selector,limit:500})}))).status,400);
+ assert.equal(seen.length,2);
+});

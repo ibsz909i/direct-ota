@@ -20,6 +20,8 @@ A 3 MB archive × 100,000 downloads is roughly 300 GB before retries. There is n
 
 Monitor provider latency and errors, storage/egress use, upload/promote outcomes, startup failures, and device rollback reports when telemetry is configured. Device reports are untrusted evidence; they cannot authorize publishing or server-side rollback.
 
+On providers with optional event collection enabled, successful client events use a stable 1% sample derived on the device from its installation ID and release ID. The ID is never sent. Failure events are unsampled. Cloudflare and Firebase aggregate bounded download bytes, duration, retry count, and maximum observed duration without retaining raw event records or installation identifiers. The `health` response is a count and sum of untrusted reports, not a census of eligible installations or a verified ready rate. Optional rollout gates only stop a requested stage; they never authorize automatic advancement or rollback.
+
 Do not collect account IDs, student information, transactions, tokens, or full upload URLs. Retain detailed operational events only as long as needed; seven days for raw events and ninety days for release summaries are useful starting points. Configure retention at the chosen provider rather than allowing unbounded logs.
 
 Stop further promotion on confirmed startup failures, signature/verification failures, or regressions in a core flow. Withdraw or issue a newer rollback instruction and investigate before advancing rollout.

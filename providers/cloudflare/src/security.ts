@@ -1,3 +1,5 @@
+import {OTA_ABSOLUTE_LIMITS} from './protocol.ts';
+
 export class Failure extends Error {
   constructor(readonly status: number, code: string) { super(code); }
 }
@@ -95,7 +97,7 @@ export async function verifyUploadToken(secret: string, token: string): Promise<
   catch { fail(403, 'UPLOAD_DENIED'); }
   if (!claim || typeof claim !== 'object' || Object.keys(claim).sort().join(',') !== 'bytes,exp,path,releaseId,sha256' ||
       typeof claim.path !== 'string' || typeof claim.sha256 !== 'string' || typeof claim.releaseId !== 'string' ||
-      !Number.isSafeInteger(claim.bytes) || claim.bytes < 1 || claim.bytes > 5242880 ||
+      !Number.isSafeInteger(claim.bytes) || claim.bytes < 1 || claim.bytes > OTA_ABSOLUTE_LIMITS.archiveBytes ||
       !Number.isSafeInteger(claim.exp) || claim.exp <= Date.now() || claim.exp > Date.now() + 900000) fail(403, 'UPLOAD_DENIED');
   return claim;
 }

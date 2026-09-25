@@ -51,6 +51,10 @@ test('fingerprint tracks declared native bytes while generated files stay stable
   assert.equal(generated.runtime,first);
   assert.equal(generated.plugin.directOtaAppId,'app.example.demo');
   assert.equal(generated.plugin.directOtaChannel,'internal');
+  assert.equal(generated.plugin.directOtaMaxArchiveBytes,5242880);
+  const larger={...config,limits:{archiveBytes:20971520,unpackedBytes:104857600,files:5000}};
+  assert.equal(nativePluginConfig(larger,first,'internal').directOtaMaxArchiveBytes,20971520);
+  assert.notEqual(fingerprintNative(fixture,larger),first);
   assert.equal(fingerprintNative(fixture,config),first);
   assert.notEqual(fingerprintNative(fixture,{...config,environment:'staging'}),first);
   writeNativeConfig(fixture,config,{channel:'production'});

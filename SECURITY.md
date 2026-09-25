@@ -18,6 +18,8 @@ Frontend code is inspectable on the device. The updater's bundle format is not a
 
 Public read access to distributable bundles is intentional in the supplied providers. It is separate from permission to upload or promote. Artifact URLs contain no account data, and archives must contain no secrets, source maps, or development files. Use the publishing scanner as one check, not as a guarantee that all possible secret formats are recognized.
 
+An app may add literal content markers in the public `direct-ota.config.json` scanner settings, for example `"scanner":{"deny":["MY_INTERNAL_MARKER"]}`. `allowFiles` lists exact relative paths exempt only from those app-specific markers. It never disables the built-in credential, source-map, path, or file-type checks. Review every exception because the scan cannot recognize every secret format.
+
 ## Server deployment
 
 - Serve endpoints and artifacts through HTTPS. Pin stable artifact URLs in native configuration. Redirects are rejected.

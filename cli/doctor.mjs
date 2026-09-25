@@ -1,15 +1,19 @@
 import {readFile, lstat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
-import {fingerprintNative, nativePluginConfig, verifyCapacitorPlugins, verifyNativePatch} from './native.mjs';
+import {nativeSnapshot, changedNativeInputs, nativePluginConfig, verifyCapacitorPlugins, verifyNativePatch} from './native.mjs';
 import {readIdentity} from './config.mjs';
 import {hostPlugin, mergeJsonPlugin, repairGeneratedPlugin} from './native-settings.mjs';
 
 export async function verifyNativeProject(root, config, targetPlatform) {
   verifyCapacitorPlugins(root);
   const recorded = JSON.parse(await readFile(join(root, 'direct-ota.runtime.json'), 'utf8'));
-  const runtime = fingerprintNative(root, config);
-  if (recorded.protocol !== 1 || recorded.runtime !== runtime) throw new Error('Native runtime drift detected. Prepare and verify a new native build.');
+  const current = nativeSnapshot(root, config);
+  const runtime = current.runtime;
+  if (recorded.protocol !== 1 || recorded.runtime !== runtime) {
+    const changed = changedNativeInputs(recorded, current);
+    throw new Error(`Native runtime drift detected${changed.length ? `; changed inputs: ${changed.join(', ')}` : ''}. Prepare and verify a new native build.`);
+  }
   const generated = JSON.parse(await readFile(join(root, 'direct-ota.capacitor.json'), 'utf8'));
   const expected = nativePluginConfig(config, runtime, generated.directOtaChannel);
   if (!isDeepStrictEqual(generated, expected)) throw new Error('Generated native plugin configuration differs from the pinned trust/settings');
@@ -54,7 +58,11 @@ export async function diagnoseProject(root, config, options = {}, remoteCheck) {
     if (!stat.isFile() || stat.isSymbolicLink()) throw Error('Recorded runtime must be a regular file');
     const value = JSON.parse(await readFile(file, 'utf8'));
     if (value.protocol !== 1 || !/^[0-9a-f]{64}$/.test(value.runtime)) throw Error('Invalid recorded runtime');
-    if (fingerprintNative(root, config) !== value.runtime) throw Error('Native inputs changed; prepare and rebuild a new native binary');
+    const current = nativeSnapshot(root, config);
+    if (current.runtime !== value.runtime) {
+      const changed = changedNativeInputs(value, current);
+      throw Error(`Native inputs changed${changed.length ? `: ${changed.join(', ')}` : ''}; prepare and rebuild a new native binary`);
+    }
     return value.runtime;
   });
   let expected = null;

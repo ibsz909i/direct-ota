@@ -54,6 +54,8 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
   const base = `https://localhost:${proxy.address().port}`;
   const config = await initProject(root, {appId:'app.example.cloudflare', baseUrl:base, provider:'cloudflare',
     webDir:'www', runtimeInputs:['native-source.txt']});
+  config.limits={archiveBytes:20*1024*1024,unpackedBytes:100*1024*1024,files:5000};
+  await writeFile(join(root,'direct-ota.config.json'),JSON.stringify(config));
   const identity = await readIdentity(root, config);
   await exportProvider('cloudflare', service);
   const workerConfig = JSON.parse((await readFile(join(service,'wrangler.jsonc'),'utf8')).replace(/^\s*\/\/.*$/gm,''));
@@ -72,9 +74,9 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
   worker.stderr.on('data', value => { logs += value.toString(); });
   const origin = `http://127.0.0.1:${port}`;
   let ready = false;
-  for (let i=0;i<100;i++) {
+  for (let i=0;i<30;i++) {
     if (worker.exitCode !== null) break;
-    try { const response = await fetch(origin+'/missing'); await response.body?.cancel(); ready = true; break; }
+    try { const response = await fetch(origin+'/missing',{signal:AbortSignal.timeout(1000)}); await response.body?.cancel(); ready = true; break; }
     catch { await new Promise(resolve => setTimeout(resolve, 100)); }
   }
   assert.ok(ready, `Worker did not start: ${logs.slice(-3000)}`);
@@ -86,6 +88,7 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
   await writeFile(join(root,'native-source.txt'),'synthetic contract');
   await mkdir(join(root,'www'));
   await writeFile(join(root,'www/index.html'),'<main>Cloudflare release one</main>');
+  await writeFile(join(root,'www/large.bin'),randomBytes(6*1024*1024));
   const {plugin}=writeNativeConfig(root,config,{channel:'internal'});
   await mkdir(join(root,'ios/App/App'),{recursive:true});
   await writeFile(join(root,'ios/App/App/capacitor.config.json'),JSON.stringify({plugins:{CapacitorUpdater:plugin}}));
@@ -140,6 +143,12 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
     const status = await cli(['status','--platform','ios']);
     assert.equal(status.sequence,1);
     const manifest = JSON.parse(await readFile(join(release,'release.json'),'utf8')).manifest;
+    const remoteHistory=await cli(['history','--remote','--platform','ios','--limit','1']);
+    assert.equal(remoteHistory.items[0].releaseId,manifest.releaseId);
+    assert.equal(remoteHistory.nextCursor,null);
+    const remoteInspect=await cli(['inspect','--remote','--release-id',manifest.releaseId]);
+    assert.equal(remoteInspect.artifact.sha256,manifest.artifact.sha256);
+    assert(manifest.artifact.bytes>5*1024*1024);
     const checks = await Promise.all(Array.from({length:200}, (_, i) => fetch(origin+'/check', {
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({platform:'ios',channel:'internal',runtime:i % 2 ? manifest.runtime : 'f'.repeat(64)}),
@@ -153,7 +162,7 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
     const part = await fetch(origin+'/artifacts/'+manifest.artifact.path,{headers:{Range:'bytes=5-19'}});
     assert.equal(part.status,206);
     assert.deepEqual(Buffer.from(await part.arrayBuffer()),bytes.subarray(5,20));
-    assert.equal((await fetch(origin+'/artifacts/'+manifest.artifact.path,{headers:{Range:'bytes=999999-'}})).status,416);
+    assert.equal((await fetch(origin+'/artifacts/'+manifest.artifact.path,{headers:{Range:`bytes=${manifest.artifact.bytes}-`}})).status,416);
     assert.equal((await fetch(origin+'/artifacts/'+manifest.artifact.path,{method:'PUT',body:'overwrite'})).status,404);
     assert.equal((await cli(['rollout','--from',release,'--platform','ios','--channel','production','--rollout','1'])).sequence,1);
     let withdrawn;
@@ -184,10 +193,15 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
     const conformance = await cli(['test-provider','--write']);
     assert(conformance.checks.includes('synthetic channel withdrawn'));
     const event = await fetch(origin+'/events',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({releaseId:conformance.releaseId,event:'download_failed'})});
+      body:JSON.stringify({releaseId:conformance.releaseId,event:'download_failed',metrics:{durationMs:2400,bytes:1200,retries:2,connection:'cellular'}})});
     assert.equal(event.status,204);
+    const secondEvent = await fetch(origin+'/events',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({releaseId:conformance.releaseId,event:'download_failed',metrics:{durationMs:3600,bytes:800,retries:1,connection:'wifi'}})});
+    assert.equal(secondEvent.status,204);
     const health = await cli(['health','--release-id',conformance.releaseId]);
-    assert.equal(health.counts.download_failed,1);
+    assert.equal(health.counts.download_failed,2);
+    assert.deepEqual(health.metrics.download_failed,{measured:2,durationMs:6000,bytes:2000,retries:3,maxDurationMs:3600,
+      connections:{wifi:1,cellular:1,unknown:0}});
     const privateEvent = await fetch(origin+'/events',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({releaseId:conformance.releaseId,event:'ready',installationId:'private'})});
     assert.equal(privateEvent.status,400);

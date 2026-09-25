@@ -259,5 +259,5 @@ test('finish scopes Firebase deployment to the reviewed project and private buck
     },conformance:async()=>({mode:'read-only',checks:['synthetic']}),remote:async()=>({release:null})});
   assert.equal(commands.length,5);
   assert(commands.some(item=>item.args.includes('--project') && item.args.includes('demo-direct-ota')));
-  assert(commands.some(item=>item.args.includes('functions:direct-ota:directOta,hosting,firestore:rules,storage')));
+  assert(commands.some(item=>item.args.includes('functions:direct-ota:directOta,hosting,firestore:rules,firestore:indexes,storage')));
 });
