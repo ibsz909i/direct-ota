@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800" role="img" aria-labelledby="title description">
+  <title id="title">Direct OTA — signed frontend updates for installed apps</title>
+  <desc id="description">A signed web bundle moves from your infrastructure to iOS and Android phones.</desc>
+  <rect width="1600" height="800" fill="#f7f5f1"/>
+  <path d="M687 0v800" stroke="#e7e3dc" stroke-width="2"/>
+
+  <!-- Editorial copy -->
+  <rect x="92" y="104" width="31" height="6" rx="3" fill="#db604d"/>
+  <text x="140" y="111" fill="#686e78" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" font-weight="700" letter-spacing="2.8">SELF-HOSTED APP UPDATES</text>
+  <text x="88" y="289" fill="#17202d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="90" font-weight="680" letter-spacing="-5">Direct OTA</text>
+  <text x="92" y="363" fill="#414a56" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="450">Ship a frontend fix.</text>
+  <text x="92" y="406" fill="#414a56" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="450">Installed apps get the update.</text>
+  <path d="M92 490h484" stroke="#d9d5ce" stroke-width="2"/>
+
+  <!-- Small release workflow; the accent is used only for the active step. -->
+  <circle cx="107" cy="550" r="13" fill="#17202d"/>
+  <path d="m101 550 4 4 8-9" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="135" y="557" fill="#17202d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="19" font-weight="650">Build</text>
+  <path d="M210 550h60" stroke="#bec2c3" stroke-width="2"/>
+  <circle cx="284" cy="550" r="13" fill="#17202d"/>
+  <path d="m278 550 4 4 8-9" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="312" y="557" fill="#17202d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="19" font-weight="650">Sign</text>
+  <path d="M382 550h60" stroke="#bec2c3" stroke-width="2"/>
+  <circle cx="456" cy="550" r="13" fill="#db604d"/>
+  <path d="m450 550 4 4 8-9" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="484" y="557" fill="#17202d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="19" font-weight="650">Deliver</text>
+  <text x="92" y="718" fill="#68717c" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" font-weight="500">Compatible web updates · iOS &amp; Android</text>
+
+  <!-- Subtle technical canvas -->
+  <g fill="#dcdedb">
+    <circle cx="765" cy="109" r="2"/><circle cx="805" cy="109" r="2"/><circle cx="845" cy="109" r="2"/><circle cx="885" cy="109" r="2"/>
+    <circle cx="765" cy="149" r="2"/><circle cx="805" cy="149" r="2"/><circle cx="845" cy="149" r="2"/><circle cx="885" cy="149" r="2"/>
+    <circle cx="765" cy="189" r="2"/><circle cx="805" cy="189" r="2"/><circle cx="845" cy="189" r="2"/><circle cx="885" cy="189" r="2"/>
+    <circle cx="765" cy="229" r="2"/><circle cx="805" cy="229" r="2"/><circle cx="845" cy="229" r="2"/><circle cx="885" cy="229" r="2"/>
+  </g>
+
+  <!-- Distribution lines sit behind the devices. -->
+  <path d="M1008 397h142M1090 397v279h228q16 0 16-16v-70h18" fill="none" stroke="#db604d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="1090" cy="397" r="8" fill="#db604d"/>
+  <path d="m1140 389 10 8-10 8M1342 582l10 8-10 8" fill="none" stroke="#db604d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Publisher's own infrastructure: a signed bundle, not a cloud logo. -->
+  <rect x="746" y="278" width="269" height="249" rx="22" fill="#e5e1da"/>
+  <rect x="739" y="270" width="269" height="249" rx="22" fill="#fff" stroke="#dfe0de" stroke-width="2"/>
+  <text x="768" y="312" fill="#69727d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14" font-weight="760" letter-spacing="1.5">YOUR INFRASTRUCTURE</text>
+  <path d="M769 330h208" stroke="#e6e8e7" stroke-width="2"/>
+  <rect x="768" y="352" width="67" height="67" rx="14" fill="#fcece7"/>
+  <path d="m784 368 18-9 18 9v23l-18 9-18-9zM784 368l18 9 18-9M802 377v23" fill="none" stroke="#db604d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="852" y="377" fill="#17202d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" font-weight="700">Web bundle</text>
+  <text x="852" y="407" fill="#69727d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16">v1.0.1 · signed</text>
+  <path d="M769 442h208" stroke="#e6e8e7" stroke-width="2"/>
+  <rect x="768" y="461" width="18" height="18" rx="5" fill="#17202d"/>
+  <path d="m773 469 3 3 5-6" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="797" y="476" fill="#414a56" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="560">Verified before install</text>
+
+  <!-- iPhone. No vendor branding or invented application interface. -->
+  <text x="1229" y="186" text-anchor="middle" fill="#68717c" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" font-weight="650">iOS</text>
+  <rect x="1150" y="206" width="158" height="329" rx="34" fill="#17202d"/>
+  <rect x="1157" y="213" width="144" height="315" rx="28" fill="#fff"/>
+  <rect x="1199" y="219" width="60" height="15" rx="7.5" fill="#17202d"/>
+  <rect x="1175" y="261" width="36" height="5" rx="2.5" fill="#d8dde0"/>
+  <rect x="1175" y="285" width="108" height="98" rx="13" fill="#f3f5f4"/>
+  <rect x="1192" y="302" width="74" height="8" rx="4" fill="#d9dedf"/>
+  <rect x="1192" y="320" width="52" height="7" rx="3.5" fill="#d9dedf"/>
+  <rect x="1192" y="346" width="74" height="19" rx="9.5" fill="#e9eeeb"/>
+  <circle cx="1229" cy="429" r="24" fill="#eaf3ec"/>
+  <path d="m1219 429 7 7 14-16" fill="none" stroke="#3e8d60" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1229" y="481" text-anchor="middle" fill="#17202d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" font-weight="700">Updated</text>
+
+  <!-- Android phone, same verified release. -->
+  <text x="1431" y="307" text-anchor="middle" fill="#68717c" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" font-weight="650">Android</text>
+  <rect x="1352" y="327" width="158" height="329" rx="34" fill="#17202d"/>
+  <rect x="1359" y="334" width="144" height="315" rx="28" fill="#fff"/>
+  <circle cx="1431" cy="346" r="5" fill="#17202d"/>
+  <rect x="1377" y="382" width="36" height="5" rx="2.5" fill="#d8dde0"/>
+  <rect x="1377" y="406" width="108" height="98" rx="13" fill="#f3f5f4"/>
+  <rect x="1394" y="423" width="74" height="8" rx="4" fill="#d9dedf"/>
+  <rect x="1394" y="441" width="52" height="7" rx="3.5" fill="#d9dedf"/>
+  <rect x="1394" y="467" width="74" height="19" rx="9.5" fill="#e9eeeb"/>
+  <circle cx="1431" cy="550" r="24" fill="#eaf3ec"/>
+  <path d="m1421 550 7 7 14-16" fill="none" stroke="#3e8d60" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="1431" y="602" text-anchor="middle" fill="#17202d" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" font-weight="700">Updated</text>
+</svg>
