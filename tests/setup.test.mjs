@@ -71,6 +71,27 @@ test('guided setup exports configured Supabase provider and private identity wit
   await assert.rejects(guidedSetup(root, {provider:'supabase',baseUrl:origin,yes:true}), /already exists/);
 });
 
+test('guided setup exports a standalone Cloudflare Worker and private secrets', async t => {
+  const root = await host(t);
+  const origin = 'https://synthetic-ota.example.workers.dev';
+  const result = await guidedSetup(root, {provider:'cloudflare', baseUrl:origin, yes:true});
+  assert.equal(result.applied, true);
+  const config = await readConfig(root);
+  await readIdentity(root, config);
+  assert.equal(config.checkUrl, origin + '/check');
+  assert.equal(config.publishUrl, origin + '/publish');
+  assert.equal(config.artifactBaseUrl, origin + '/artifacts');
+  assert.deepEqual(config.uploadOrigins, [origin]);
+  assert.deepEqual(await readFile(join(root, 'ota-service/src/protocol.ts'), 'utf8'),
+    await readFile(join(source, 'src/protocol.ts'), 'utf8'));
+  const trust = join(root, '.direct-ota/cloudflare-trust.json');
+  const secret = join(root, '.direct-ota/cloudflare-upload-secret');
+  for (const file of [trust, secret]) assert.equal((await lstat(file)).mode & 0o777, 0o600);
+  assert.deepEqual(JSON.parse(await readFile(trust, 'utf8')), config);
+  assert.equal(Buffer.from((await readFile(secret, 'utf8')).trim(), 'base64').length, 32);
+  assert.doesNotMatch(await readFile(join(root, 'ota-service/wrangler.jsonc'), 'utf8'), /BEGIN PRIVATE KEY/);
+});
+
 test('setup rejects mismatched app identity, wrong provider, and unsafe output before writing', async t => {
   const root = await host(t);
   await assert.rejects(guidedSetup(root, {provider:'supabase',appId:'app.other',baseUrl:origin,yes:true}), /differs/);

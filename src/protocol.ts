@@ -258,7 +258,7 @@ async function verifyJws(
   ) invalid();
   const parts = compact.split(".");
   if (parts.length !== 3) invalid();
-  const text = new TextDecoder("utf-8", { fatal: true });
+  const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
   const header = object(JSON.parse(text.decode(decodeSegment(parts[0]))));
   exactKeys(header, ["alg", "typ", "kid"]);
   if (header.alg !== "ES256" || header.typ !== typ || header.kid !== keyId) {

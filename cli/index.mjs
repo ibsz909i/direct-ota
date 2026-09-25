@@ -8,9 +8,9 @@ import {selector, prepare, upload, promote, instruction} from './releases.mjs';
 
 const help = `Direct OTA — signed updates on your infrastructure
 
-direct-ota init --app-id app.example.demo --base-url https://updates.example.com [--provider node|supabase]
-direct-ota setup --provider supabase [--base-url https://PROJECT.supabase.co] [--channel internal] [--plan|--yes]
-direct-ota export-provider --provider node|supabase --out ./ota-service
+direct-ota init --app-id app.example.demo --base-url https://updates.example.com [--provider node|supabase|cloudflare]
+direct-ota setup --provider supabase|cloudflare --base-url https://YOUR_HOST [--channel internal] [--plan|--yes]
+direct-ota export-provider --provider node|supabase|cloudflare --out ./ota-service
 direct-ota native --channel internal|production
 direct-ota patch
 direct-ota doctor [--remote --platform ios|android] [--channel internal]
@@ -24,7 +24,7 @@ direct-ota rollback --from DIR --platform ios|android --channel production
 direct-ota withdraw --platform ios|android --channel production
 
 All commands accept --project DIR and --identity FILE. Test changed features before publish.
-setup prepares local files only; it never deploys to Supabase or publishes an update.
+setup prepares local files only; it never deploys a provider or publishes an update.
 native produces configuration for the first store build; frontend updates use prepare/upload/promote.
 publish runs the host app build, then prepares, uploads, promotes, and verifies an internal release.
 See docs/quickstart.md and AGENTS.md for setup and release rules.
@@ -47,19 +47,24 @@ try {
     });
     if (values.plan || !result.applied) console.log(result.plan);
     else console.log([
-      'Local setup prepared. No Supabase project was changed.',
+      'Local setup prepared. No remote project was changed.',
       'Next:',
-      '1. Review ota-service/migrations, ota-service/setup.sql, and the intended linked Supabase project.',
-      '2. Apply the reviewed migration and setup SQL; set Edge trust from .direct-ota/supabase-trust.env; deploy both functions.',
+      ...(values.provider === 'cloudflare' ? [
+        '1. Review ota-service/migrations and the intended Cloudflare account.',
+        '2. Create an isolated D1 database and R2 bucket; set public trust and private upload secret; deploy the Worker.',
+      ] : [
+        '1. Review ota-service/migrations, ota-service/setup.sql, and the intended linked Supabase project.',
+        '2. Apply the reviewed migration and setup SQL; set Edge trust from .direct-ota/supabase-trust.env; deploy both functions.',
+      ]),
       '3. Merge direct-ota.capacitor.json into CapacitorUpdater settings, then run native again and npx cap sync.',
       '4. Wire the updater coordinator and readiness signal, build a native app, run npx direct-ota doctor, and test an internal OTA on a device.',
-      'See docs/quickstart.md and docs/providers/supabase.md for the exact deployment steps.',
+      `See docs/quickstart.md and docs/providers/${values.provider === 'cloudflare' ? 'cloudflare' : 'supabase'}.md for deployment steps.`,
     ].join('\n'));
   } else if (action === 'init') {
     await initProject(root, {appId: values['app-id'], baseUrl: values['base-url'], provider: values.provider});
     console.log('Created public configuration and a private local publishing identity. Back up .direct-ota/identity.json securely; never commit it.');
   } else if (action === 'export-provider') {
-    if (!['node','supabase'].includes(values.provider) || !values.out) throw new Error('Specify --provider node|supabase and --out DIR');
+    if (!['node','supabase','cloudflare'].includes(values.provider) || !values.out) throw new Error('Specify --provider node|supabase|cloudflare and --out DIR');
     const dest = resolve(root, values.out);
     await exportProvider(values.provider, dest);
     console.log('Provider files exported. Follow its README to deploy with your public trust configuration.');

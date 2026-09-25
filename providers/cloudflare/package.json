@@ -1,0 +1,14 @@
+{
+  "name": "direct-ota-cloudflare-provider",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "wrangler types && tsc --project tsconfig.json",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "wrangler": "4.139.0"
+  }
+}

@@ -65,6 +65,9 @@ test('public manifest JWK rejects private parameters and unrecognized material',
 test('upload destinations cannot redirect credentials to another host',()=>{
  const config={uploadOrigins:['https://storage.example.invalid']};
  validateUpload(config,{method:'PUT',url:'https://storage.example.invalid/upload?token=synthetic',headers:{'x-upsert':'false'}});
+ validateUpload(config,{method:'PUT',url:'https://storage.example.invalid/upload',headers:{'X-Direct-OTA-Upload':'synthetic.capability'}});
+ assert.throws(()=>validateUpload(config,{method:'PUT',url:'https://storage.example.invalid/other',headers:{'X-Direct-OTA-Upload':'synthetic.capability'}}));
+ assert.throws(()=>validateUpload(config,{method:'PUT',url:'https://storage.example.invalid/upload?logged=1',headers:{'X-Direct-OTA-Upload':'synthetic.capability'}}));
  for(const bad of [{method:'POST',url:'https://storage.example.invalid/upload'},{method:'PUT',url:'https://evil.invalid/upload'},{method:'PUT',url:'http://storage.example.invalid/upload'},{method:'PUT',url:'https://storage.example.invalid/upload',headers:{Authorization:'secret'}}]) assert.throws(()=>validateUpload(config,bad));
 });
 test('metadata responses are bounded',async()=>{await assert.rejects(boundedJson(new Response('x'.repeat(33000))));});

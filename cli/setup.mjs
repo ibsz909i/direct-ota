@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {writeFile, lstat, access} from 'node:fs/promises';
 import {join, resolve, dirname} from 'node:path';
 import {createRequire} from 'node:module';
+import {randomBytes} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {createInterface} from 'node:readline/promises';
 import {initProject, readConfig, readIdentity, httpsUrl} from './config.mjs';
@@ -65,19 +66,20 @@ async function assertAvailable(root, output) {
   catch (error) { if (error.code !== 'ENOENT') throw error; }
 }
 
-function planText({host, baseUrl, out, channel}) {
+function planText({host, baseUrl, out, channel, provider}) {
+  const cloudflare = provider === 'cloudflare';
   return [
     'Direct OTA setup plan',
     `App: ${host.appId} (Capacitor 8; ${host.platforms.join(', ')})`,
     `Web directory: ${host.webDir}`,
-    `Supabase origin: ${baseUrl}`,
+    `${cloudflare ? 'Cloudflare Worker' : 'Supabase'} origin: ${baseUrl}`,
     `Local provider output: ${out}`,
     `Native channel: ${channel}`,
-    'Local changes: create a private signing identity, public config, ignored trust env file,',
+    `Local changes: create a private signing identity, public config, ignored ${cloudflare ? 'Worker secret files' : 'trust env file'},`,
     'append .direct-ota/ to .gitignore,',
-    'export a configured Supabase provider, patch the pinned updater, and generate native settings.',
-    'No migration, Edge Function, bucket, or release is deployed by this command.',
-    'You must review the exported SQL, deploy to the intended Supabase project, merge native',
+    `export a ${cloudflare ? 'Cloudflare' : 'configured Supabase'} provider, patch the pinned updater, and generate native settings.`,
+    `No migration, ${cloudflare ? 'Worker' : 'Edge Function'}, bucket, or release is deployed by this command.`,
+    `You must review the exported ${cloudflare ? 'D1 migration' : 'SQL'}, deploy to the intended ${cloudflare ? 'Cloudflare account' : 'Supabase project'}, merge native`,
     'settings, sync/build the app, and verify an update on a device before publishing.',
   ].join('\n');
 }
@@ -88,7 +90,8 @@ async function ask(question) {
 }
 
 export async function guidedSetup(root, options = {}) {
-  if (options.provider && options.provider !== 'supabase') throw new Error('Guided setup currently supports --provider supabase only');
+  if (options.provider && !['supabase', 'cloudflare'].includes(options.provider)) throw new Error('Guided setup supports --provider supabase or cloudflare only');
+  const provider = options.provider || 'supabase';
   const host = inspectHost(root);
   verifyNativePatch(root);
   if (options.appId && options.appId !== host.appId) throw new Error('--app-id differs from capacitor.config');
@@ -98,23 +101,30 @@ export async function guidedSetup(root, options = {}) {
   if (dirname(output) !== root) throw new Error('Provider output must be a new directory directly inside the app project');
   await assertAvailable(root, output);
   let baseUrl = options.baseUrl;
-  if (!baseUrl && process.stdin.isTTY) baseUrl = await ask('Supabase project HTTPS URL: ');
-  if (!baseUrl) throw new Error('Specify --base-url https://PROJECT.supabase.co');
+  if (!baseUrl && process.stdin.isTTY) baseUrl = await ask(`${provider === 'cloudflare' ? 'Cloudflare Worker' : 'Supabase project'} HTTPS origin: `);
+  if (!baseUrl) throw new Error('Specify --base-url with the provider HTTPS origin');
   const url = httpsUrl(baseUrl + '/');
-  if (baseUrl.endsWith('/') || url.pathname !== '/' || url.origin !== baseUrl) throw new Error('Use the exact Supabase project HTTPS origin without a path or trailing slash');
-  const plan = planText({host, baseUrl, out: output.slice(root.length + 1), channel});
+  if (baseUrl.endsWith('/') || url.pathname !== '/' || url.origin !== baseUrl) throw new Error('Use the exact provider HTTPS origin without a path or trailing slash');
+  const plan = planText({host, baseUrl, out: output.slice(root.length + 1), channel, provider});
   if (options.plan) return {applied: false, plan};
   if (!options.yes) {
     if (!process.stdin.isTTY) throw new Error('Review with --plan, then use --yes for noninteractive local setup');
     console.log(plan);
     if ((await ask('Create these local files? Type yes to continue: ')) !== 'yes') return {applied: false, plan};
   }
-  const config = await initProject(root, {appId: host.appId, baseUrl, provider: 'supabase',
+  const config = await initProject(root, {appId: host.appId, baseUrl, provider,
     webDir: host.webDir, runtimeInputs: [host.configFile, 'package-lock.json', ...host.platforms]});
-  await exportProvider('supabase', output);
-  await configureSupabaseExport(output, config);
-  const env = join(root, '.direct-ota', 'supabase-trust.env');
-  await writeFile(env, `OTA_TRUST_JSON=${JSON.stringify(config)}\n`, {flag: 'wx', mode: 0o600});
+  await exportProvider(provider, output);
+  if (provider === 'supabase') {
+    await configureSupabaseExport(output, config);
+    const env = join(root, '.direct-ota', 'supabase-trust.env');
+    await writeFile(env, `OTA_TRUST_JSON=${JSON.stringify(config)}\n`, {flag: 'wx', mode: 0o600});
+  } else {
+    const env = join(root, '.direct-ota', 'cloudflare-trust.json');
+    await writeFile(env, JSON.stringify(config) + '\n', {flag: 'wx', mode: 0o600});
+    await writeFile(join(root, '.direct-ota', 'cloudflare-upload-secret'),
+      randomBytes(32).toString('base64'), {flag: 'wx', mode: 0o600});
+  }
   installNative(root, config);
   writeNativeConfig(root, config, {channel});
   // Check that the freshly written public configuration still agrees with the private identity.

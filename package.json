@@ -1,6 +1,6 @@
 {
   "name": "direct-ota",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Signed OTA updates for Capacitor apps, on infrastructure you control.",
   "type": "module",
   "license": "MPL-2.0",
@@ -37,7 +37,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check:cloudflare": "cd providers/cloudflare && ../../node_modules/.bin/wrangler types && ../../node_modules/.bin/tsc --project tsconfig.json && ../../node_modules/.bin/wrangler deploy --dry-run",
+    "check": "npm run typecheck && npm test && npm run check:cloudflare && npm run build",
     "prepack": "npm run check",
     "prepare": "npm run build"
   },
@@ -53,7 +54,8 @@
     "@capacitor/cli": "8.4.3",
     "@capacitor/core": "^8.1.0",
     "@types/node": "^24.0.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "wrangler": "4.139.0"
   },
   "repository": {
     "type": "git",

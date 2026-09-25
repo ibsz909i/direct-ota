@@ -35,6 +35,14 @@ export function validateUpload(config, upload) {
   const url = new URL(upload?.url);
   if (upload.method !== 'PUT' || url.protocol !== 'https:' || url.username || url.password || url.hash || !config.uploadOrigins.includes(url.origin)) throw new Error('Untrusted upload destination');
   const headers = upload.headers || {};
-  if (Object.keys(headers).some(k => !['content-type', 'x-upsert'].includes(k.toLowerCase())) || Object.values(headers).some(v => typeof v !== 'string' || /[\r\n]/.test(v))) throw new Error('Unexpected upload headers');
+  const names = Object.keys(headers).map(k => k.toLowerCase());
+  if (new Set(names).size !== names.length ||
+      names.some(k => !['content-type', 'x-upsert', 'x-direct-ota-upload'].includes(k)) ||
+      Object.values(headers).some(v => typeof v !== 'string' || /[\r\n]/.test(v))) throw new Error('Unexpected upload headers');
+  if (names.includes('x-direct-ota-upload') &&
+      (url.pathname !== '/upload' || url.search ||
+        !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(Object.entries(headers).find(([k]) => k.toLowerCase() === 'x-direct-ota-upload')[1]))) {
+    throw new Error('Unexpected upload capability');
+  }
   return {url, headers};
 }

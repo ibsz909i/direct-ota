@@ -53,16 +53,16 @@ export async function readConfig(root) { return validateConfig(JSON.parse(await 
 export async function writeJson(path, value, mode = 0o644) { await writeFile(path, JSON.stringify(value, null, 2) + '\n', {flag: 'wx', mode}); }
 export async function initProject(root, {appId, baseUrl, provider = 'node', webDir = 'dist',
   runtimeInputs = ['capacitor.config.ts', 'package-lock.json', 'ios', 'android']}) {
-  if (!['node', 'supabase'].includes(provider)) throw new Error('Provider must be node or supabase');
+  if (!['node', 'supabase', 'cloudflare'].includes(provider)) throw new Error('Provider must be node, supabase, or cloudflare');
   httpsUrl(baseUrl + "/");
-  if (baseUrl.endsWith('/')) throw new Error('Remove the trailing slash from --base-url');
+  if (baseUrl.endsWith('/') || new URL(baseUrl).origin !== baseUrl) throw new Error('Use an exact HTTPS origin without a path or trailing slash');
   const signing = generateKeyPairSync('ec', {namedCurve: 'prime256v1'});
   const bundle = generateKeyPairSync('rsa', {modulusLength: 2048});
   const keyId = 'publisher-' + randomBytes(8).toString('hex');
   const config = validateConfig({schema: 1, appId, environment: 'production', backendContract: 1,
-    artifactBaseUrl: baseUrl + (provider === 'node' ? '/artifacts' : '/storage/v1/object/public/direct-ota'),
-    checkUrl: baseUrl + (provider === 'node' ? '/check' : '/functions/v1/direct-ota-check'),
-    publishUrl: baseUrl + (provider === 'node' ? '/publish' : '/functions/v1/direct-ota-publish'),
+    artifactBaseUrl: baseUrl + (provider === 'supabase' ? '/storage/v1/object/public/direct-ota' : '/artifacts'),
+    checkUrl: baseUrl + (provider === 'supabase' ? '/functions/v1/direct-ota-check' : '/check'),
+    publishUrl: baseUrl + (provider === 'supabase' ? '/functions/v1/direct-ota-publish' : '/publish'),
     keyId, publicJwk: signing.publicKey.export({format: 'jwk'}),
     bundlePublicKey: bundle.publicKey.export({type: 'spki', format: 'pem'}),
     webDir, runtimeInputs,

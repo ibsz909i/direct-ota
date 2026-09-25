@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "direct-ota-example",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-25",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "vars": { "OTA_PUBLISHER_ENABLED": "true" },
+  "secrets": { "required": ["OTA_TRUST_JSON", "OTA_UPLOAD_SECRET"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "direct-ota-example",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "direct-ota-example" }
+  ]
+}

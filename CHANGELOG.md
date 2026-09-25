@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Add an isolated Cloudflare Worker, D1, and R2 provider with signed publishing, immutable uploads, byte-range downloads, bounded metadata caching, rollback, and withdrawal.
+- Support Cloudflare in local guided setup, provider export, documentation, and a real local Worker integration test.
+
 ## 0.3.0
 
 - Add one-command internal publishing that builds the host app, preserves immutable candidates, and confirms the promoted channel head.

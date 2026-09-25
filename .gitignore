@@ -6,6 +6,9 @@ dist/
 .env.*
 !.env.example
 .direct-ota/
+providers/cloudflare/.dev.vars*
+providers/cloudflare/.wrangler/
+providers/cloudflare/worker-configuration.d.ts
 *.pem
 *.key
 *.p12

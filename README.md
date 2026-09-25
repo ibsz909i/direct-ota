@@ -25,10 +25,11 @@ OTA does not bypass store rules. Check [Apple's review guidelines](https://devel
 Your app does **not** need to use Supabase.
 
 - **Supabase provider:** use Storage and Edge Functions for updates, even if your app uses Firebase, Django, Laravel, a custom API, or another backend.
+- **Cloudflare provider:** use a Worker, D1, and R2 for an isolated update service, regardless of your app backend.
 - **Node provider:** run the update service next to your existing backend, using SQLite and a persistent artifact directory behind HTTPS.
 - **Custom provider:** implement the [HTTP contract](docs/protocol.md) in your own stack. The app's database and authentication remain separate from update delivery.
 
-Supabase has a [free tier](https://supabase.com/pricing), with storage, bandwidth, and project limits. Direct OTA has no subscription fee; hosting and downloads still consume resources. A 3 MB bundle delivered to 100,000 devices is about 300 GB before retries.
+Supabase and Cloudflare have free tiers with usage limits. Direct OTA has no subscription fee; hosting and downloads still consume resources. A 3 MB bundle delivered to 100,000 devices is about 300 GB before retries. Cloudflare's Workers Free limit is currently [100,000 requests per day](https://developers.cloudflare.com/workers/platform/pricing/), so a large fleet needs a measured capacity plan.
 
 ## Supported apps
 
@@ -43,14 +44,14 @@ Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native bui
 Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases). For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
 
 ```sh
-npm install --save-exact ./direct-ota-0.3.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.4.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
 ```
 
 The interactive command shows its local changes before applying them. It detects the app ID, web directory, and native platforms, creates a **new private publishing identity**, exports a configured Supabase provider, and prepares native settings. It does **not** deploy a migration, Edge Function, bucket, or update. Review the exported files and follow the [setup guide](docs/quickstart.md) for deployment and native integration. For automation, `--yes` applies only the described local changes.
 
-For the Node provider or an existing integration, use the separate `init`, `export-provider`, and `native` commands in the provider guides. Setup never uses your application account or backend service key as the publishing identity.
+For Cloudflare, replace the two `setup` commands above with `--provider cloudflare --base-url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev`, then follow the [Cloudflare guide](docs/providers/cloudflare.md). For the Node provider or an existing integration, use the separate `init`, `export-provider`, and `native` commands in the provider guides. Setup never uses your application account or backend service key as the publishing identity.
 Keep both native plugins as direct app dependencies so Capacitor 8 discovers them. If your Capacitor config uses `includePlugins`, include both on every target platform; `native` and `doctor` check actual plugin discovery.
 
 Continue with the [setup guide](docs/quickstart.md). It covers deploying a provider, integrating the native updater, protecting in-progress actions, and sending your first update. After the initial native release, the everyday flow is:
@@ -84,7 +85,7 @@ The [agent guide](AGENTS.md) includes compatibility checks, integration boundari
 ## Documentation
 
 - [Setup](docs/quickstart.md) · [Native integration](docs/native-integration.md)
-- [Supabase](docs/providers/supabase.md) · [Node service](docs/providers/node.md)
+- [Supabase](docs/providers/supabase.md) · [Cloudflare](docs/providers/cloudflare.md) · [Node service](docs/providers/node.md)
 - [Protocol](docs/protocol.md) · [Compatibility](docs/compatibility.md)
 - [Publishing](docs/publishing.md) · [Operations](docs/operations.md)
 - [Case study: a loyalty app](docs/case-study.md) · [Verification](docs/verification.md)

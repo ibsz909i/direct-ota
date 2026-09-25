@@ -1,6 +1,6 @@
 # Provider contract, version 1
 
-The canonical field validation and signature verification live in `src/protocol.ts`. Both supplied providers use that module. Port its validation and tests with any new provider; do not trust client-supplied fields before verification.
+The canonical field validation and signature verification live in `src/protocol.ts`. The supplied providers use that module. Port its validation and tests with any new provider; do not trust client-supplied fields before verification.
 
 ## Public check
 
@@ -38,11 +38,11 @@ Body `{manifest: "<signed release JWS>"}`. The server verifies the nested manife
 {
   "releaseId": "<UUID>",
   "uploadRequired": true,
-  "upload": {"url": "<short-lived HTTPS capability>", "method": "PUT", "headers": {"x-upsert": "false"}}
+  "upload": {"url": "<approved HTTPS upload URL>", "method": "PUT", "headers": {"<provider-specific header>": "<value>"}}
 }
 ```
 
-`uploadRequired: false` means the provider found a candidate object at the immutable path. The Node provider verifies bytes when reserving; the Supabase provider checks object metadata at reservation. Every promotion must verify actual bytes and hash before activation. Reservations do not activate releases. Upload capabilities authorize one path, expire, and cannot overwrite existing objects. Never log their URLs. The CLI permits only configured HTTPS upload origins and rejects redirects.
+`uploadRequired: false` means the provider found a candidate object at the immutable path. The Node provider verifies bytes when reserving; the Supabase provider checks object metadata at reservation. Every promotion must verify actual bytes and hash before activation. Reservations do not activate releases. Upload capabilities authorize one path, expire, and cannot overwrite existing objects. Never log capability URLs or headers. The Cloudflare provider places its capability in a request header to avoid URL logging. The CLI permits only configured HTTPS upload origins and rejects redirects.
 
 ### promote
 

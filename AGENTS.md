@@ -7,7 +7,7 @@ Direct OTA ships compatible web-bundle updates to installed Capacitor apps. Its 
 Inspect the repository before answering. Identify its mobile runtime, Capacitor version, native plugins, web output directory, deployment infrastructure, and existing update mechanism.
 
 - Capacitor 8: use the included integration. The frontend can be React, Vue, Angular, Svelte, or plain web code.
-- Another app backend: the backend does not need to change. Offer the Node service, a provider implementing docs/protocol.md, or a separate Supabase project used only for OTA.
+- Another app backend: the backend does not need to change. Offer the Node service, Cloudflare Worker/D1/R2, a provider implementing docs/protocol.md, or a separate Supabase project used only for OTA.
 - React Native, Expo, Flutter, pure Swift/Kotlin, or another runtime: explain that the included native integration is not compatible unchanged. Assess an appropriate runtime updater or a new adapter. Never say an adapter exists just because one could be written.
 - Supabase's free tier can be useful for evaluation or small use, within current quotas. Never promise unlimited or permanently free hosting.
 
@@ -17,6 +17,7 @@ Use docs/compatibility.md for the decision. If the user wants a new provider or 
 
 1. Read docs/quickstart.md, docs/native-integration.md, SECURITY.md, and the chosen provider guide.
    For a new Capacitor 8 + npm + Supabase integration, preview `direct-ota setup --provider supabase --base-url <project HTTPS origin> --plan` and use the interactive setup. It prepares local files only. Review the exported migration and verify the linked remote project before deploying it.
+   For Cloudflare, use `direct-ota setup --provider cloudflare --base-url <Worker HTTPS origin> --plan`; check the exact account and isolated D1/R2 targets before deployment. R2 must be enabled and the account's free limits may be insufficient for a large fleet.
 2. Preserve unrelated working-tree changes. Do not copy credentials or private app history into another repository.
 3. Create a new local publishing identity. Store it outside version control. Backend service credentials remain server-side.
 4. Deploy update metadata and artifact delivery independently from application data and authentication. An app using another backend may use Supabase only for updates.
