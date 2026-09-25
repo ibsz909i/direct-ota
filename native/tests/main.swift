@@ -28,6 +28,16 @@ require(try verify(nextSigned,ring:ring).sequence == 1,"next pinned key")
 require(try DirectOtaProtocol.signerIndex(nextSigned,keys:DirectOtaProtocol.signingKeys(ring,keyId:"test",x:b64(raw.subdata(in:1..<33)),y:b64(raw.subdata(in:33..<65)))) == 1,"monotonic key epoch")
 require((try? verify(nextSigned)) == nil,"next key requires native pinning")
 require((try? verify(signed,ring:ring.replacingOccurrences(of:"next",with:"test"))) == nil,"duplicate signing key")
+let deltaBase=Data("abcdef".utf8), deltaTarget=Data("abcdef!".utf8)
+func word(_ value:UInt32)->Data { Data([UInt8(value >> 24),UInt8((value >> 16)&255),UInt8((value >> 8)&255),UInt8(value&255)]) }
+var patch=Data("DOTA-DLT1".utf8)
+patch.append(Data(SHA256.hash(data:deltaBase)));patch.append(Data(SHA256.hash(data:deltaTarget)))
+patch.append(word(7));patch.append(word(2))
+patch.append(0);patch.append(word(0));patch.append(word(6))
+patch.append(1);patch.append(word(1));patch.append(Data("!".utf8))
+require(try DirectOtaProtocol.applyDelta(base:deltaBase,patch:patch)==deltaTarget,"binary delta reconstruction")
+patch[patch.count-1]=UInt8(ascii:"?")
+require((try? DirectOtaProtocol.applyDelta(base:deltaBase,patch:patch)) == nil,"corrupted binary delta")
 do {_ = try verify(signed+"x");fatalError("accepted bad signature")} catch {}
 value["runtime"]=String(repeating:"b",count:64)
 do {_ = try verify(sign(value));fatalError("accepted incompatible runtime")} catch {}
@@ -43,6 +53,18 @@ value["artifact"]=["path":"ios/\(runtime)/\(artifactId)/\(archiveHash).zip",
 do {_ = try verify(sign(value));fatalError("accepted oversized archive with default limits")} catch {}
 let larger=DirectOtaLimits(archiveBytes:20971520,unpackedBytes:104857600,files:5000)
 require(try verify(sign(value),limits:larger).artifact?.bytes == 6291456,"native-pinned larger limits")
+var compound=value
+var full=compound["artifact"] as! [String:Any]
+full["bytes"]=180
+let envelope=Data(repeating:0,count:256).base64EncodedString()
+full["delta"]=["fromSha256":String(repeating:"a",count:64),"baseChecksum":String(repeating:"b",count:64),
+    "fullBytes":100,"fullSha256":String(repeating:"d",count:64),"offset":100,"bytes":80,
+    "sha256":String(repeating:"e",count:64),"checksum":envelope,
+    "sessionKey":Data(repeating:0,count:16).base64EncodedString()+":"+envelope] as [String:Any]
+compound["artifact"]=full
+require(try verify(sign(compound),limits:larger).artifact?.delta?.bytes == 80,"signed compound artifact")
+var wrong=full;var wrongDelta=wrong["delta"] as! [String:Any];wrongDelta["offset"]=99;wrong["delta"]=wrongDelta;compound["artifact"]=wrong
+require((try? verify(sign(compound),limits:larger)) == nil,"reject wrong delta range")
 value["mode"]="background"
 require(try verify(sign(value),limits:larger).mode == "background","signed background mode")
 value["mode"]="silent"

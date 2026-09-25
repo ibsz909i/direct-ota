@@ -106,6 +106,18 @@ export interface OtaArtifact {
   files: number;
   checksum: string;
   sessionKey: string;
+  /** Signed encrypted patch appended to the same immutable Storage object. */
+  delta?: {
+    fromSha256: string;
+    baseChecksum: string;
+    fullBytes: number;
+    fullSha256: string;
+    offset: number;
+    bytes: number;
+    sha256: string;
+    checksum: string;
+    sessionKey: string;
+  };
 }
 interface OtaBase extends OtaSelector {
   protocol: 1;
@@ -258,6 +270,7 @@ export function validateManifest(
       "files",
       "checksum",
       "sessionKey",
+      ...(a.delta === undefined ? [] : ["delta"]),
     ]);
     if (
       typeof a.sha256 !== "string" || !OTA_HASH.test(a.sha256) ||
@@ -275,18 +288,30 @@ export function validateManifest(
     if (
       a.url !== `${trust.artifactBaseUrl}/${a.path}`
     ) invalid();
-    if (
-      !(base64(a.checksum, [256]) ||
-        typeof a.checksum === "string" && /^[0-9a-f]{512}$/.test(a.checksum)) ||
-      typeof a.sessionKey !== "string"
-    ) invalid();
-    const envelope = a.sessionKey.split(":");
-    if (
-      envelope.length !== 2 || !base64(envelope[0], [16]) ||
-      !base64(envelope[1], [256])
-    ) invalid();
+    validateEnvelope(a.checksum,a.sessionKey);
+    if (a.delta !== undefined) {
+      const d=object(a.delta);
+      exactKeys(d,['fromSha256','baseChecksum','fullBytes','fullSha256','offset','bytes','sha256','checksum','sessionKey']);
+      if (typeof d.fromSha256 !== 'string' || !OTA_HASH.test(d.fromSha256) ||
+          typeof d.baseChecksum !== 'string' || !OTA_HASH.test(d.baseChecksum) ||
+          typeof d.fullSha256 !== 'string' || !OTA_HASH.test(d.fullSha256) ||
+          typeof d.sha256 !== 'string' || !OTA_HASH.test(d.sha256) ||
+          d.fromSha256 === a.sha256 ||
+          !integer(d.fullBytes,1,effectiveLimits(trust).archiveBytes) ||
+          !integer(d.bytes,1,effectiveLimits(trust).archiveBytes) ||
+          d.offset !== d.fullBytes || d.fullBytes+d.bytes !== a.bytes ||
+          d.bytes >= d.fullBytes || d.bytes > 5*1024*1024) invalid();
+      validateEnvelope(d.checksum,d.sessionKey);
+    }
   }
   return v as unknown as OtaManifest;
+}
+function validateEnvelope(checksum: unknown, sessionKey: unknown): void {
+  if (!(base64(checksum,[256]) ||
+      typeof checksum === 'string' && /^[0-9a-f]{512}$/.test(checksum)) ||
+      typeof sessionKey !== 'string') invalid();
+  const parts=sessionKey.split(':');
+  if (parts.length !== 2 || !base64(parts[0],[16]) || !base64(parts[1],[256])) invalid();
 }
 function decodeSegment(segment: string): Uint8Array<ArrayBuffer> {
   if (!/^[A-Za-z0-9_-]+$/.test(segment)) invalid();

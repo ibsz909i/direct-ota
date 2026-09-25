@@ -62,6 +62,18 @@ test('larger archives require matching native-pinned limits and remain bounded',
  ]) assert.throws(()=>validateTrust({...trust,limits}));
  assert.throws(()=>validateManifest({...m,artifact:{...m.artifact,bytes:larger.limits.archiveBytes+1}},larger));
 });
+test('signed compound artifacts bind a bounded patch and complete encrypted bundle', () => {
+ const m=manifest();m.action='release';
+ const hash='d'.repeat(64),path=`ios/${m.runtime}/${m.releaseId}/${hash}.zip`;
+ const checksum=Buffer.alloc(256).toString('base64'),sessionKey=Buffer.alloc(16).toString('base64')+':'+Buffer.alloc(256).toString('base64');
+ const delta={fromSha256:'a'.repeat(64),baseChecksum:'b'.repeat(64),fullBytes:100,fullSha256:'c'.repeat(64),
+   offset:100,bytes:80,sha256:'e'.repeat(64),checksum,sessionKey};
+ m.artifact={path,url:trust.artifactBaseUrl+'/'+path,sha256:hash,bytes:180,unpackedBytes:200,files:1,checksum,sessionKey,delta};
+ assert.deepEqual(validateManifest(m,trust).artifact.delta,delta);
+ for(const bad of [{offset:99},{bytes:100},{sha256:'bad'},{baseChecksum:'bad'},{extra:true}])
+   assert.throws(()=>validateManifest({...m,artifact:{...m.artifact,delta:{...delta,...bad}}},trust));
+ assert.throws(()=>validateManifest({...m,artifact:{...m.artifact,bytes:181}},trust));
+});
 test('publishing commands require scoped purpose and a short expiry', async () => {
  const iat=Math.floor(Date.now()/1000),body={protocol:1,appId:trust.appId,aud:'direct-ota-publish',action:'status',iat,exp:iat+60,nonce:randomUUID(),body:{}};
  const signed=v=>signJws(v,key.privateKey,trust.keyId,'DIRECT-OTA-PUBLISH');

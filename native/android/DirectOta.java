@@ -36,6 +36,7 @@ final class DirectOta {
     private volatile HttpURLConnection connection;
     private volatile String phase = "idle", error;
     private volatile int received = 0;
+    private volatile int transferTotal = 0;
     private volatile JSONObject manifest;
     private volatile long generation;
     private String watchedBundle;
@@ -165,7 +166,7 @@ final class DirectOta {
         if(m.optString("action").equals("withdraw")){require(!m.has("artifact")&&!m.has("mode"));return m;}
         require(m.optString("action").equals("release"));JSONObject a=m.getJSONObject("artifact");
         require(!m.has("mode")||m.getString("mode").equals("required")||m.getString("mode").equals("background"));
-        require(exactKeys(a,"path","url","sha256","bytes","unpackedBytes","files","checksum","sessionKey"));
+        require(a.has("delta") ? exactKeys(a,"path","url","sha256","bytes","unpackedBytes","files","checksum","sessionKey","delta") : exactKeys(a,"path","url","sha256","bytes","unpackedBytes","files","checksum","sessionKey"));
         require(integer(a,"bytes",1,maxArchiveBytes())&&integer(a,"unpackedBytes",1,maxUnpackedBytes())&&integer(a,"files",1,maxFiles())&&a.getString("sha256").matches("[0-9a-f]{64}"));
         String[] path=a.getString("path").split("/",-1);
         require(path.length==4&&path[0].equals("android")&&path[1].equals(runtime())&&path[2].matches("[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")&&path[3].equals(a.getString("sha256")+".zip"));
@@ -173,6 +174,18 @@ final class DirectOta {
         String[] session=a.getString("sessionKey").split(":",-1);
         require(session.length==2&&Base64.decode(session[0],Base64.NO_WRAP).length==16&&Base64.decode(session[1],Base64.NO_WRAP).length==256);
         String checksum=a.getString("checksum");require(checksum.matches("[0-9a-f]{512}")||Base64.decode(checksum,Base64.NO_WRAP).length==256);
+        if(a.has("delta")){
+            JSONObject d=a.getJSONObject("delta");require(exactKeys(d,"fromSha256","baseChecksum","fullBytes","fullSha256","offset","bytes","sha256","checksum","sessionKey"));
+            require(d.getString("fromSha256").matches("[0-9a-f]{64}")&&d.getString("baseChecksum").matches("[0-9a-f]{64}")&&
+                d.getString("fullSha256").matches("[0-9a-f]{64}")&&d.getString("sha256").matches("[0-9a-f]{64}")&&
+                !d.getString("fromSha256").equals(a.getString("sha256"))&&integer(d,"fullBytes",1,maxArchiveBytes())&&
+                integer(d,"bytes",1,5242880)&&integer(d,"offset",1,maxArchiveBytes())&&
+                d.getLong("offset")==d.getLong("fullBytes")&&d.getLong("bytes")<d.getLong("fullBytes")&&
+                d.getLong("fullBytes")+d.getLong("bytes")==a.getLong("bytes"));
+            String[] patchKey=d.getString("sessionKey").split(":",-1);
+            require(patchKey.length==2&&Base64.decode(patchKey[0],Base64.NO_WRAP).length==16&&Base64.decode(patchKey[1],Base64.NO_WRAP).length==256);
+            String patchChecksum=d.getString("checksum");require(patchChecksum.matches("[0-9a-f]{512}")||Base64.decode(patchChecksum,Base64.NO_WRAP).length==256);
+        }
         return m;
     }
     private void recover(){
@@ -189,7 +202,7 @@ final class DirectOta {
     }
     synchronized JSObject state(){
         recover();JSObject s=new JSObject();s.put("enabled",enabled());s.put("platform","android");s.put("runtime",runtime());s.put("channel",channel());s.put("connection",networkType());s.put("phase",phase);s.put("received",received);s.put("installationId",prefs.getString("installation",""));s.put("current",host.implementation.getCurrentBundle().getId());
-        if(token!=null&&manifest!=null){s.put("manifest",token);s.put("total",manifest.optJSONObject("artifact").optInt("bytes"));s.put("version",manifest.optString("version"));s.put("releaseId",manifest.optString("releaseId"));s.put("mode",manifest.optString("mode","required"));s.put("cellularAllowed",prefs.getBoolean(prefix()+".cellular."+manifest.optJSONObject("artifact").optString("sha256"),false));}if(error!=null)s.put("error",error);return s;
+        if(token!=null&&manifest!=null){s.put("manifest",token);s.put("total",transferTotal>0?transferTotal:manifest.optJSONObject("artifact").optInt("bytes"));s.put("version",manifest.optString("version"));s.put("releaseId",manifest.optString("releaseId"));s.put("mode",manifest.optString("mode","required"));s.put("cellularAllowed",prefs.getBoolean(prefix()+".cellular."+manifest.optJSONObject("artifact").optString("sha256"),false));}if(error!=null)s.put("error",error);return s;
     }
     private void emit(){main.post(()->host.directOtaEmit(state()));}
     synchronized void accept(String signed)throws Exception{
@@ -202,7 +215,7 @@ final class DirectOta {
         byte[] digest=MessageDigest.getInstance("SHA-256").digest(prefs.getString("installation","").getBytes(StandardCharsets.UTF_8));int cohort=(((digest[0]&255)*256)+(digest[1]&255))%10000;
         if(cohort>=m.getInt("rollout")*100&&manifest==null)return;
         if(host.implementation.getCurrentBundle().getId().equals(bundleId(hash))){clearRequirement();return;}
-        if(!signed.equals(token)){generation++;pause();phase="required";error=null;received=0;}
+        if(!signed.equals(token)){generation++;pause();phase="required";error=null;received=0;transferTotal=m.getJSONObject("artifact").getInt("bytes");}
         manifest=m;token=signed;prefs.edit().putString(prefix()+".manifest",signed).commit();emit();
     }
     void pause(){paused=true;HttpURLConnection c=connection;if(c!=null)c.disconnect();if(downloading.get())phase="paused";emit();}
@@ -218,20 +231,9 @@ final class DirectOta {
                 paused=false;error=null;
                 if(!imported(hash) || host.implementation.getBundleInfo(id).isErrorStatus()){
                     File folder=new File(host.getContext().getNoBackupFilesDir(),"direct-ota");require(folder.isDirectory()||folder.mkdirs());
-                    File[] stale=folder.listFiles();if(stale!=null)for(File file:stale)if(file.getName().matches("[0-9a-f]{64}\\.(part|zip)")&&!file.getName().startsWith(hash+"."))file.delete();
+                    File[] stale=folder.listFiles();if(stale!=null)for(File file:stale)if(file.getName().matches("[0-9a-f]{64}\\.(part|zip|delta\\.part|delta\\.decoded)")&&!file.getName().startsWith(hash+"."))file.delete();
                     if(folder.getUsableSpace()<a.getLong("unpackedBytes")+3*a.getLong("bytes")+10485760)throw new IOException("OTA_STORAGE");
-                    File partial=new File(folder,hash+".part");int total=a.getInt("bytes");phase="downloading";emit();
-                    transfer(partial,a.getString("url"),total,hash);
-                    if(paused||manifest!=m||generation!=operation)throw new IOException("OTA_PAUSED");
-                    phase="verifying";emit();
-                    if(!CryptoCipher.calcChecksum(partial).equals(hash)){partial.delete();throw new IOException("OTA_INVALID");}
-                    File zip=new File(folder,hash+".zip");Files.copy(partial.toPath(),zip.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    try{
-                        CryptoCipher.decryptFile(zip,host.implementation.publicKey,a.getString("sessionKey"));
-                        String checksum=CryptoCipher.decryptChecksum(a.getString("checksum"),host.implementation.publicKey);
-                        require(checksum.length()==64&&checksum.equals(CryptoCipher.calcChecksum(zip)));validateZip(zip,a);
-                        host.implementation.directOtaImport(zip,id,m.getString("version"),checksum);partial.delete();
-                    }finally{zip.delete();}
+                    downloadAndImport(folder,m,a,id,hash,operation);
                 }
                 synchronized(this){
                     if(paused||manifest!=m||generation!=operation)throw new IOException("OTA_PAUSED");
@@ -242,15 +244,78 @@ final class DirectOta {
             finally{HttpURLConnection finished=connection;if(finished!=null)finished.disconnect();connection=null;downloading.set(false);emit();}
         },"directOta-ota-download").start();
     }
-    private void transfer(File partial,String url,int total,String hash)throws Exception{
+    private void downloadAndImport(File folder,JSONObject m,JSONObject a,String id,String hash,long operation)throws Exception{
+        JSONObject delta=a.optJSONObject("delta");int objectBytes=a.getInt("bytes");
+        File zip=new File(folder,hash+".zip");boolean patched=false;
+        try{
+            if(delta!=null){
+                File base=new File(folder,delta.getString("baseChecksum")+".base");
+                if(base.isFile()&&base.length()<=5242880&&CryptoCipher.calcChecksum(base).equals(delta.getString("baseChecksum"))){
+                    File part=new File(folder,hash+".delta.part"),decoded=new File(folder,hash+".delta.decoded");
+                    try{
+                        phase="downloading";transferTotal=delta.getInt("bytes");emit();
+                        transfer(part,a.getString("url"),delta.getInt("bytes"),hash,delta.getInt("offset"),objectBytes);
+                        if(paused||manifest!=m||generation!=operation)throw new IOException("OTA_PAUSED");
+                        phase="verifying";emit();
+                        require(CryptoCipher.calcChecksum(part).equals(delta.getString("sha256")));
+                        Files.copy(part.toPath(),decoded.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                        CryptoCipher.decryptFile(decoded,host.implementation.publicKey,delta.getString("sessionKey"));
+                        String patchChecksum=CryptoCipher.decryptChecksum(delta.getString("checksum"),host.implementation.publicKey);
+                        require(patchChecksum.equals(CryptoCipher.calcChecksum(decoded)));
+                        Files.write(zip.toPath(),applyDelta(Files.readAllBytes(base.toPath()),Files.readAllBytes(decoded.toPath())));
+                        patched=true;part.delete();
+                    }catch(Exception failure){
+                        if("OTA_PAUSED".equals(failure.getMessage())||"OTA_NETWORK".equals(failure.getMessage()))throw failure;
+                        part.delete();zip.delete();
+                    }finally{decoded.delete();}
+                }
+            }
+            String checksum=CryptoCipher.decryptChecksum(a.getString("checksum"),host.implementation.publicKey);
+            if(patched&&!checksum.equals(CryptoCipher.calcChecksum(zip))){zip.delete();patched=false;}
+            if(!patched){
+                int fullBytes=delta==null?objectBytes:delta.getInt("fullBytes");
+                String fullHash=delta==null?hash:delta.getString("fullSha256");
+                File part=new File(folder,hash+".part");phase="downloading";transferTotal=fullBytes;emit();
+                boolean valid=false;
+                for(int attempt=0;attempt<2;attempt++){
+                    transfer(part,a.getString("url"),fullBytes,hash,0,objectBytes);
+                    if(paused||manifest!=m||generation!=operation)throw new IOException("OTA_PAUSED");
+                    phase="verifying";emit();
+                    if(CryptoCipher.calcChecksum(part).equals(fullHash)){valid=true;break;}
+                    part.delete();
+                    if(attempt==0){phase="downloading";received=0;emit();}
+                }
+                if(!valid)throw new IOException("OTA_INVALID");
+                Files.copy(part.toPath(),zip.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                CryptoCipher.decryptFile(zip,host.implementation.publicKey,a.getString("sessionKey"));
+                part.delete();
+            }
+            require(checksum.length()==64&&checksum.equals(CryptoCipher.calcChecksum(zip)));
+            validateZip(zip,a);
+            host.implementation.directOtaImport(zip,id,m.getString("version"),checksum);
+            cacheBase(folder,zip,checksum);
+        }finally{zip.delete();}
+    }
+    private void cacheBase(File folder,File zip,String checksum){
+        if(zip.length()>5242880)return;
+        try{
+            File cache=new File(folder,checksum+".base");
+            Files.copy(zip.toPath(),cache.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            cache.setLastModified(System.currentTimeMillis());
+            File[] retained=folder.listFiles(file->file.getName().matches("[0-9a-f]{64}\\.base"));
+            if(retained!=null&&retained.length>2){Arrays.sort(retained,Comparator.comparingLong(File::lastModified));for(int i=0;i<retained.length-2;i++)retained[i].delete();}
+        }catch(Exception ignored){/* Cache is optional; the next update can download its full segment. */}
+    }
+    private void transfer(File partial,String url,int total,String hash,int offset,int objectTotal)throws Exception{
         try(RandomAccessFile file=new RandomAccessFile(partial,"rw")){
             if(file.length()>total)file.setLength(0);received=(int)file.length();if(received==total)return;
             // Bind to the selected Wi-Fi network; it cannot silently fall back to cellular.
             Network net=connectivity.getActiveNetwork();if(net==null||!networkAllowed(net,hash))throw new IOException("OTA_PAUSED");
             connection=(HttpURLConnection)net.openConnection(new URL(url));connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(45000);connection.setReadTimeout(45000);connection.setRequestProperty("Accept-Encoding","identity");
-            if(received>0)connection.setRequestProperty("Range","bytes="+received+"-");int code=connection.getResponseCode();
+            if(received>0||offset>0||total<objectTotal)connection.setRequestProperty("Range","bytes="+(offset+received)+"-"+(offset+total-1));int code=connection.getResponseCode();
             if(code==408||code==429||code>=500)throw new IOException("OTA_NETWORK");
-            if(code==200){file.setLength(0);received=0;}else require(code==206&&("bytes "+received+"-"+(total-1)+"/"+total).equals(connection.getHeaderField("Content-Range")));
+            if(code==200&&offset==0&&total==objectTotal){file.setLength(0);received=0;}
+            else require(code==206&&("bytes "+(offset+received)+"-"+(offset+total-1)+"/"+objectTotal).equals(connection.getHeaderField("Content-Range")));
             long length=connection.getContentLengthLong();require(length<0||length==total-received);file.seek(received);emit();
             try(InputStream input=connection.getInputStream()){
                 byte[] buffer=new byte[32768];int count,last=received;long lastEmission=SystemClock.elapsedRealtime();
@@ -292,6 +357,34 @@ final class DirectOta {
         for(String part:parts)if(part.isEmpty()||part.equals(".")||part.equals(".."))return false;
         for(int i=0;i<name.length();i++){char c=name.charAt(i);if(c<32||(c>=127&&c<=159))return false;}
         return true;
+    }
+    private static long deltaWord(byte[] patch,int at)throws IOException{
+        require(at>=0&&at+4<=patch.length);
+        return ((long)(patch[at]&255)<<24)|((long)(patch[at+1]&255)<<16)|((long)(patch[at+2]&255)<<8)|(patch[at+3]&255);
+    }
+    static byte[] applyDelta(byte[] base,byte[] patch)throws Exception{
+        byte[] magic="DOTA-DLT1".getBytes(StandardCharsets.US_ASCII);
+        require(base.length<=5242880&&patch.length>=81&&patch.length<=5242880+900081);
+        require(Arrays.equals(Arrays.copyOfRange(patch,0,9),magic));
+        require(MessageDigest.isEqual(Arrays.copyOfRange(patch,9,41),MessageDigest.getInstance("SHA-256").digest(base)));
+        long targetSize=deltaWord(patch,73),operations=deltaWord(patch,77);
+        require(targetSize>=1&&targetSize<=5242880&&operations>=1&&operations<=100000);
+        byte[] result=new byte[(int)targetSize];int cursor=81,written=0;
+        for(long i=0;i<operations;i++){
+            require(cursor<patch.length);int kind=patch[cursor++]&255;
+            if(kind==0){
+                long offset=deltaWord(patch,cursor),count=deltaWord(patch,cursor+4);cursor+=8;
+                require(count>0&&offset<=base.length&&count<=base.length-offset&&count<=result.length-written);
+                System.arraycopy(base,(int)offset,result,written,(int)count);written+=(int)count;
+            }else if(kind==1){
+                long count=deltaWord(patch,cursor);cursor+=4;
+                require(count>0&&count<=result.length-written&&count<=patch.length-cursor);
+                System.arraycopy(patch,cursor,result,written,(int)count);cursor+=(int)count;written+=(int)count;
+            }else throw new IOException("OTA_INVALID");
+        }
+        require(cursor==patch.length&&written==result.length&&
+            MessageDigest.isEqual(Arrays.copyOfRange(patch,41,73),MessageDigest.getInstance("SHA-256").digest(result)));
+        return result;
     }
     private static int le16(byte[] bytes,int offset){return (bytes[offset]&255)|((bytes[offset+1]&255)<<8);}
     private static long le32(byte[] bytes,int offset){return (long)le16(bytes,offset)|((long)le16(bytes,offset+2)<<16);}

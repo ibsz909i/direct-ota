@@ -22,6 +22,16 @@ For existing scripts, `prepare`, `upload`, and `promote` remain available. If `p
 
 For a routine frontend change, `publish --mode background` signs a release that downloads silently on Wi-Fi and activates on the next app process start. The default is required. A background release never begins a cellular transfer, even if the user previously consented for another required update. The mode is carried through staged rollout; rollback uses required mode. This signed field needs the new native integration. Older installed runtimes cannot be sent a background-mode manifest; keep their compatible release path until they receive a store build.
 
+For an app with the current delta-capable native integration, prepare a smaller update against a retained candidate on the same native runtime:
+
+```sh
+npx direct-ota prepare --platform ios --version 1.0.2 --delta-from .direct-ota/releases/PRIOR_RELEASE_ID --out .direct-ota/releases/NEW_RELEASE_ID
+npx direct-ota upload --release .direct-ota/releases/NEW_RELEASE_ID
+npx direct-ota promote --release .direct-ota/releases/NEW_RELEASE_ID
+```
+
+The CLI includes a delta only when both plaintext ZIPs are at most 5 MiB, the encrypted patch is smaller than the encrypted full ZIP, and the combined immutable object stays within the native-pinned archive limit. Otherwise it publishes a normal full bundle. Retain the previous candidate directory and its private bundle identity to prepare a delta. A phone without the matching cached base downloads the signed full segment; a corrupt patch falls back to that segment. Both paths verify the final plaintext ZIP and archive bounds before import. The signed delta field requires a new native store build; old runtimes remain on their own compatible channel.
+
 3. On an internal app, verify download, activation, startup health, and the changed feature. Keep the publishing computer offline during a download test to prove delivery does not depend on it.
 4. Promote the already-tested artifact to production. Each command creates a newer signed instruction. Use the release directory returned by `publish`:
 

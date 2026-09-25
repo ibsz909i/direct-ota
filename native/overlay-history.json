@@ -1,5 +1,17 @@
 {
-  "ios/Sources/CapacitorUpdaterPlugin/DirectOta.swift": ["ca8f5e874ff1a332a912738182470c629bad4b177fea5a893d83aff3b8a2ba40", "a71835fca344447505fe69e671f1e0d289c6f6b8820f24f5e3ec3c584e22e8c0"],
-  "ios/Sources/CapacitorUpdaterPlugin/DirectOtaProtocol.swift": ["7f924aeb66ff784042d6034912ce359c8d86f046890f1e592a0b2f170bf5124d", "23ae32b2fd966f03a571133dd20fec6bc7b84844916d2aa5d10f2f53a2112850"],
-  "android/src/main/java/ee/forgr/capacitor_updater/DirectOta.java": ["4d90bbcd0e47cc1ac38c59ec07d471a8d94aaf27c469cb5e03d6f338e5d405a4", "8ad4cd7783973df1c32f3f5abffac50c382630a34ca2645663f3783a72d4dc8d"]
+  "ios/Sources/CapacitorUpdaterPlugin/DirectOta.swift": [
+    "ca8f5e874ff1a332a912738182470c629bad4b177fea5a893d83aff3b8a2ba40",
+    "a71835fca344447505fe69e671f1e0d289c6f6b8820f24f5e3ec3c584e22e8c0",
+    "9880220fee5d2e68c136b5a8a5837a44cf0d0afcc2e9d6e8fcd8af3503099c49"
+  ],
+  "ios/Sources/CapacitorUpdaterPlugin/DirectOtaProtocol.swift": [
+    "7f924aeb66ff784042d6034912ce359c8d86f046890f1e592a0b2f170bf5124d",
+    "23ae32b2fd966f03a571133dd20fec6bc7b84844916d2aa5d10f2f53a2112850",
+    "429d7b2fd605d9fcb0e4972135bbed742c5c49c529bb729bc4fe466cc61eebb3"
+  ],
+  "android/src/main/java/ee/forgr/capacitor_updater/DirectOta.java": [
+    "4d90bbcd0e47cc1ac38c59ec07d471a8d94aaf27c469cb5e03d6f338e5d405a4",
+    "8ad4cd7783973df1c32f3f5abffac50c382630a34ca2645663f3783a72d4dc8d",
+    "17f7e1fd9da71c6549d808dc3d200405e51ccbbe6bd48d0d7962ee880e6301a9"
+  ]
 }

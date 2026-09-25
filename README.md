@@ -47,7 +47,7 @@ Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native bui
 Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases). For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
 
 ```sh
-npm install --save-exact ./direct-ota-0.6.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.7.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
 ```
@@ -77,6 +77,7 @@ For release inspection, `direct-ota inspect --release DIR` verifies a candidate'
 - Devices reject modified bundles, unknown keys, incompatible runtimes, and unapproved download locations.
 - Publish commands expire quickly and cannot be replayed. Channel changes use compare-and-swap to prevent conflicting publishes.
 - Downloads retain partial files, validate range responses, pause without cellular consent, and retry recoverable failures.
+- Delta-capable native builds can fetch a signed smaller patch for a cached base; other installations use the same release's complete ZIP. Use `prepare --delta-from` after the first compatible store build.
 - Protected actions can finish before activation. Your app registers those actions with the activity guard.
 - Startup health is reported locally. Failed startup restores a working bundle and quarantines the failed artifact.
 

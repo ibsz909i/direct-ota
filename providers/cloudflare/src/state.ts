@@ -49,7 +49,12 @@ export async function promotedPath(db: D1Database, path: string): Promise<Releas
 }
 
 function equalArtifact(a: OtaArtifact, b: OtaArtifact): boolean {
-  return a.path === b.path && a.url === b.url && a.sha256 === b.sha256 &&
+  const da=a.delta, db=b.delta;
+  const sameDelta=(!da&&!db) || (!!da&&!!db&&
+    da.fromSha256===db.fromSha256&&da.baseChecksum===db.baseChecksum&&
+    da.fullBytes===db.fullBytes&&da.fullSha256===db.fullSha256&&da.offset===db.offset&&
+    da.bytes===db.bytes&&da.sha256===db.sha256&&da.checksum===db.checksum&&da.sessionKey===db.sessionKey);
+  return sameDelta && a.path === b.path && a.url === b.url && a.sha256 === b.sha256 &&
     a.bytes === b.bytes && a.unpackedBytes === b.unpackedBytes && a.files === b.files &&
     a.checksum === b.checksum && a.sessionKey === b.sessionKey;
 }

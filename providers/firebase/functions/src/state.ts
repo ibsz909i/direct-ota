@@ -10,6 +10,16 @@ type Bucket = ReturnType<ReturnType<typeof getStorage>['bucket']>;
 const hash = (data: Uint8Array | string) => createHash('sha256').update(data).digest('hex');
 const selectorId = (s: OtaSelector) => `${s.platform}_${s.channel}_${s.runtime}`;
 const artifactId = (path: string) => hash(path);
+function sameArtifact(a: OtaArtifact, b: OtaArtifact): boolean {
+  const da=a.delta, db=b.delta;
+  const sameDelta=(!da&&!db) || (!!da&&!!db&&
+    da.fromSha256===db.fromSha256&&da.baseChecksum===db.baseChecksum&&
+    da.fullBytes===db.fullBytes&&da.fullSha256===db.fullSha256&&da.offset===db.offset&&
+    da.bytes===db.bytes&&da.sha256===db.sha256&&da.checksum===db.checksum&&da.sessionKey===db.sessionKey);
+  return sameDelta&&a.path===b.path&&a.url===b.url&&a.sha256===b.sha256&&
+    a.bytes===b.bytes&&a.unpackedBytes===b.unpackedBytes&&a.files===b.files&&
+    a.checksum===b.checksum&&a.sessionKey===b.sessionKey;
+}
 const cors = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, HEAD, PUT, OPTIONS',
   'Access-Control-Allow-Headers': 'content-type, range, if-range, x-direct-ota-upload',
   'Access-Control-Expose-Headers': 'content-range, content-length, etag, accept-ranges'};
@@ -169,7 +179,8 @@ export function createFirebaseProvider({db, bucket, trust, uploadSecret, publish
         const previous = await artifacts.doc(artifactId(artifact.path)).get();
         const row = previous.data();
         if (!row?.promoted || row.path !== artifact.path || row.sha256 !== artifact.sha256 ||
-            row.bytes !== artifact.bytes || row.platform !== manifest.platform || row.runtime !== manifest.runtime)
+            row.bytes !== artifact.bytes || row.platform !== manifest.platform || row.runtime !== manifest.runtime ||
+            (row.artifact ? !sameArtifact(row.artifact as OtaArtifact,artifact) : artifact.delta !== undefined))
           providerFail(400, 'UNKNOWN_ROLLBACK_ARTIFACT');
       }
       const uploaded = await inspect(bucket, artifact);
@@ -212,7 +223,8 @@ export function createFirebaseProvider({db, bucket, trust, uploadSecret, publish
         tx.set(currentRef, {sequence: manifest.sequence, signed, releaseId: manifest.releaseId});
         if (artifactRef && manifest.action === 'release') tx.set(artifactRef, {path: manifest.artifact.path,
           sha256: manifest.artifact.sha256, bytes: manifest.artifact.bytes,
-          platform: manifest.platform, runtime: manifest.runtime, promoted: true});
+          platform: manifest.platform, runtime: manifest.runtime, promoted: true,
+          artifact: manifest.artifact});
         tx.create(auditRef, {sequence: manifest.sequence, selector: selectorId(manifest),
           action: manifest.action, at: Date.now()});
         return {sequence: manifest.sequence, releaseId: manifest.releaseId};

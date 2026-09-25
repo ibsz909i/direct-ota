@@ -5,7 +5,8 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import {randomUUID, createHash} from 'node:crypto';
 import {verifyManifest, validateManifest, validateSelector, effectiveLimits} from '../dist/protocol.js';
-import {signJws, encryptBundle} from './crypto.mjs';
+import {signJws, encryptBundle, decryptBundle} from './crypto.mjs';
+import {createDelta, applyDelta} from './delta.mjs';
 import {command, validateUpload} from './transport.mjs';
 import {writeJson} from './config.mjs';
 import {signProvenance, verifyProvenance} from './provenance.mjs';
@@ -38,15 +39,46 @@ export async function prepare(root, config, identity, options) {
     await writeFile(scannerPath, JSON.stringify({scanner:config.scanner ?? {},limits:effectiveLimits(config)}), {flag:'wx',mode:0o600});
     const result = execFileSync('python3', [fileURLToPath(new URL('./package.py', import.meta.url)), resolve(root, config.webDir), zipPath, scannerPath], {encoding: 'utf8', maxBuffer: 32768});
     const metadata = JSON.parse(result);
-    const encrypted = encryptBundle(await readFile(zipPath), identity.bundle);
-    if (encrypted.bytes.length > effectiveLimits(config).archiveBytes) throw new Error('Encrypted archive exceeds native-pinned limit');
-    const path = `${selected.platform}/${selected.runtime}/${releaseId}/${encrypted.sha256}.zip`;
+    const plain=await readFile(zipPath);
+    const encrypted=encryptBundle(plain,identity.bundle);
+    let bytes=encrypted.bytes,delta;
+    if(options['delta-from']){
+      const priorDir=resolve(root,options['delta-from']);
+      const directoryInfo=await lstat(priorDir);
+      if(!directoryInfo.isDirectory()||directoryInfo.isSymbolicLink())throw Error('Delta base must be a regular release directory');
+      const {manifest:prior}=await readRelease(priorDir,config);
+      if(prior.action!=='release'||prior.platform!==selected.platform||prior.runtime!==selected.runtime)
+        throw Error('Delta base is not compatible with this native runtime');
+      const priorArtifact=join(priorDir,'bundle.zip');
+      const priorStat=await lstat(priorArtifact);
+      if(!priorStat.isFile()||priorStat.isSymbolicLink()||priorStat.size!==prior.artifact.bytes)
+        throw Error('Delta base must be the exact signed regular artifact');
+      const oldBytes=await readFile(priorArtifact);
+      if(createHash('sha256').update(oldBytes).digest('hex')!==prior.artifact.sha256)
+        throw Error('Delta base artifact changed after signing');
+      const oldFull=prior.artifact.delta?oldBytes.subarray(0,prior.artifact.delta.fullBytes):oldBytes;
+      const base=decryptBundle(oldFull,{...prior.artifact,sha256:prior.artifact.delta?.fullSha256??prior.artifact.sha256},identity.bundle);
+      if(base.length<=5*1024*1024&&plain.length<=5*1024*1024){
+        const patch=createDelta(base,plain);
+        if(!applyDelta(base,patch).equals(plain))throw Error('Delta reconstruction failed before signing');
+        const sealed=encryptBundle(patch,identity.bundle);
+        if(sealed.bytes.length<encrypted.bytes.length&&encrypted.bytes.length+sealed.bytes.length<=effectiveLimits(config).archiveBytes){
+          bytes=Buffer.concat([encrypted.bytes,sealed.bytes]);
+          delta={fromSha256:prior.artifact.sha256,baseChecksum:createHash('sha256').update(base).digest('hex'),
+            fullBytes:encrypted.bytes.length,fullSha256:encrypted.sha256,offset:encrypted.bytes.length,
+            bytes:sealed.bytes.length,sha256:sealed.sha256,checksum:sealed.checksum,sessionKey:sealed.sessionKey};
+        }
+      }
+    }
+    if(bytes.length>effectiveLimits(config).archiveBytes)throw Error('Encrypted archive exceeds native-pinned limit');
+    const compoundHash=createHash('sha256').update(bytes).digest('hex');
+    const path=`${selected.platform}/${selected.runtime}/${releaseId}/${compoundHash}.zip`;
     const manifest = validateManifest({protocol: 1, appId: config.appId, environment: config.environment,
       ...selected, backendContract: config.backendContract, sequence: status.sequence + 1, action: 'release',
       rollout: Number(options.rollout ?? 100), releaseId, version: options.version, issuedAt: new Date().toISOString(),
       ...(options.mode===undefined?{}:{mode:options.mode}),
-      artifact: {path, url: config.artifactBaseUrl + '/' + path, sha256: encrypted.sha256, bytes: encrypted.bytes.length,
-        ...metadata, checksum: encrypted.checksum, sessionKey: encrypted.sessionKey}}, config);
+      artifact: {path, url: config.artifactBaseUrl + '/' + path, sha256:compoundHash, bytes:bytes.length,
+        ...metadata, checksum:encrypted.checksum, sessionKey:encrypted.sessionKey,...(delta?{delta}:{})}}, config);
     const directory = resolve(root, options.out || join('.direct-ota/releases', releaseId));
     await mkdir(directory, {recursive: false, mode: 0o700}).catch(async error => {
       if (error.code !== 'ENOENT') throw error;
@@ -54,7 +86,7 @@ export async function prepare(root, config, identity, options) {
       await mkdir(directory, {mode: 0o700});
     });
     const signed = signJws(manifest, identity.signing, config.keyId);
-    await writeFile(join(directory, 'bundle.zip'), encrypted.bytes, {flag: 'wx'});
+    await writeFile(join(directory, 'bundle.zip'), bytes, {flag: 'wx'});
     await writeFile(join(directory, 'manifest.jws'), signed, {flag: 'wx'});
     await writeFile(join(directory, 'provenance.jws'), signProvenance(signed,manifest,sourceProvenance(root),identity,config), {flag:'wx'});
     await writeJson(join(directory, 'release.json'), {manifest, expectedSequence: status.sequence, artifactId: releaseId});

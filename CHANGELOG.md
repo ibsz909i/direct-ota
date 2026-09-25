@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 - Allow explicitly pinned larger bundle ceilings across packaging, signed metadata admission, iOS, and Android; preserve the original defaults for existing apps.
 - Include an internal publishing GitHub Action with private temporary identity handling and a reviewed CI example.
@@ -14,6 +14,9 @@
 - Add signed, paginated publisher-only remote history and promoted-release inspection for the Node, Cloudflare, Firebase, and Supabase providers.
 - Allow project-specific literal deny markers in bundle scanning, with exact-file exceptions that cannot bypass built-in credential checks.
 - Add a local release verification command that checks the package version, full test suite, dependency audit, tarball contents, installed CLI/exports, and SHA-256 before publication.
+- Stage a second native-pinned signing key, keep old signatures valid during adoption, and activate the new publisher only after the native build is verified. Native clients reject a return to the old key after accepting the new key.
+- Add bounded encrypted binary deltas inside immutable full-bundle artifacts. Devices with a verified cached base download a smaller range; all other devices use the complete bundle. Corrupt deltas fall back to the full segment, and corrupt full partials get one fresh retry.
+- Add a disposable local Supabase Storage and PostgreSQL acceptance command with real Storage authorization, immutable upload, byte-range, replay, and channel checks.
 
 ## 0.6.0
 

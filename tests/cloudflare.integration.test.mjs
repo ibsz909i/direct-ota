@@ -143,6 +143,18 @@ test('Cloudflare Worker publishes, serves ranges, rejects unauthorized writes an
     const status = await cli(['status','--platform','ios']);
     assert.equal(status.sequence,1);
     const manifest = JSON.parse(await readFile(join(release,'release.json'),'utf8')).manifest;
+    const alteredArtifact={...manifest.artifact,delta:{fromSha256:'a'.repeat(64),baseChecksum:'b'.repeat(64),
+      fullBytes:manifest.artifact.bytes-1,fullSha256:'c'.repeat(64),offset:manifest.artifact.bytes-1,
+      bytes:1,sha256:'d'.repeat(64),checksum:manifest.artifact.checksum,sessionKey:manifest.artifact.sessionKey}};
+    const changedMetadata=validateManifest({...manifest,releaseId:randomUUID(),sequence:2,
+      issuedAt:new Date().toISOString(),artifact:alteredArtifact},config);
+    const changedSigned=signJws(changedMetadata,identity.signing,config.keyId);
+    const alteredAt=Math.floor(Date.now()/1000);
+    const alteredCommand=signJws({protocol:1,appId:config.appId,aud:'direct-ota-publish',action:'reserve',
+      iat:alteredAt,exp:alteredAt+60,nonce:randomUUID(),body:{manifest:changedSigned}},
+      identity.signing,config.keyId,'DIRECT-OTA-PUBLISH');
+    assert.equal((await fetch(origin+'/publish',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({command:alteredCommand})})).status,400);
     const remoteHistory=await cli(['history','--remote','--platform','ios','--limit','1']);
     assert.equal(remoteHistory.items[0].releaseId,manifest.releaseId);
     assert.equal(remoteHistory.nextCursor,null);

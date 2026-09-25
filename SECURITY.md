@@ -10,6 +10,8 @@ A publishing identity has two private keys: an ES256 manifest/command key and th
 
 Only signed, short-lived publishing commands can reserve and promote releases. Servers reject replayed nonces. Promotion checks the actual artifact hash and size, then conditionally replaces the expected channel sequence. Devices independently verify the signed instruction and bundle before activation.
 
+For delta releases, the signed instruction binds the complete immutable object, each encrypted byte range, the cached base ZIP checksum, and the final reconstructed ZIP checksum. Native clients reject a wrong base or malformed patch and fall back to the complete signed segment. A smaller transfer never bypasses final archive validation.
+
 The default local identity is a mode-0600 file in an ignored directory, not an encrypted key vault. Use full-disk encryption and restricted access on the publishing machine. Keep an encrypted offline backup or supply a protected identity file through your CI secret manager. Never commit the file. A person or process that can use this identity can publish code to your users.
 
 ## What encryption does not do

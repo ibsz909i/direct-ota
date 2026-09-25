@@ -17,6 +17,7 @@ final class DirectOtaController {
     private var phase = "idle"
     private var error: String?
     private var received = 0
+    private var transferTotal = 0
     private var readyTimer: Timer?
     private var activeSeconds = 0.0
     private var lastTick = ProcessInfo.processInfo.systemUptime
@@ -109,7 +110,7 @@ final class DirectOtaController {
         recover()
         let current = host?.implementation.getCurrentBundleId() ?? "builtin"
         var output: JSObject = ["enabled": enabled, "platform": "ios", "runtime": runtime, "channel": channel, "connection": connection, "phase": phase, "received": received, "installationId": installation, "current": current]
-        if let token, let m = manifest { output["manifest"] = token; output["total"] = m.artifact?.bytes ?? 0; output["version"] = m.version; output["releaseId"] = m.releaseId; output["mode"] = m.mode ?? "required"; output["cellularAllowed"] = defaults.bool(forKey: key + ".cellular." + (m.artifact?.sha256 ?? "")) }
+        if let token, let m = manifest { output["manifest"] = token; output["total"] = transferTotal > 0 ? transferTotal : (m.artifact?.bytes ?? 0); output["version"] = m.version; output["releaseId"] = m.releaseId; output["mode"] = m.mode ?? "required"; output["cellularAllowed"] = defaults.bool(forKey: key + ".cellular." + (m.artifact?.sha256 ?? "")) }
         if let error { output["error"] = error }
         return output
     }
@@ -132,7 +133,7 @@ final class DirectOtaController {
         // An existing required update stays required until a signed withdrawal or replacement.
         if DirectOtaProtocol.cohort(installation) >= m.rollout * 100 && manifest == nil { defaults.synchronize(); return }
         if host?.implementation.getCurrentBundleId() == bundleId(a.sha256) { clearRequirement(); return }
-        if token != value { generation += 1; pause(); received = 0; phase = "required"; error = nil }
+        if token != value { generation += 1; pause(); received = 0; transferTotal = a.bytes; phase = "required"; error = nil }
         token = value; manifest = m; save(); emit()
     }
     func pause() { transfer?.cancel(); if transfer != nil { phase = "paused" }; emit() }
@@ -148,15 +149,28 @@ final class DirectOtaController {
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             for stale in try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) {
-                if stale.lastPathComponent.range(of: "^[0-9a-f]{64}\\.(part|zip)$", options: .regularExpression) != nil && !stale.lastPathComponent.hasPrefix(a.sha256 + ".") { try? FileManager.default.removeItem(at: stale) }
+                if stale.lastPathComponent.range(of: "^[0-9a-f]{64}\\.(part|zip|delta\\.part|delta\\.decoded)$", options: .regularExpression) != nil && !stale.lastPathComponent.hasPrefix(a.sha256 + ".") { try? FileManager.default.removeItem(at: stale) }
             }
             var directory = folder; var values = URLResourceValues(); values.isExcludedFromBackup = true; try directory.setResourceValues(values)
             let space = try folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage ?? 0
             guard space > Int64(a.unpackedBytes + a.bytes * 3 + 10485760) else { throw DirectOtaFailure.storage }
-            let path = folder.appendingPathComponent(a.sha256 + ".part")
             let operation = generation
-            phase = "downloading"; error = nil
-            let downloader = DirectOtaTransfer(url: URL(string: a.url)!, path: path, total: a.bytes, cellular: allowed, progress: { [weak self] bytes in
+            var selected: DirectOtaDelta?
+            if let delta = a.delta {
+                let base = folder.appendingPathComponent(delta.baseChecksum + ".base")
+                if ((try? base.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) <= 5242880,
+                   FileManager.default.fileExists(atPath: base.path),
+                   CryptoCipher.calcChecksum(filePath: base) == delta.baseChecksum { selected = delta }
+            }
+            startTransfer(manifest: m, artifact: a, host: host, cellular: allowed, operation: operation, delta: selected, completion: completion)
+        } catch { phase = "error"; self.error = (error as? DirectOtaFailure)?.rawValue ?? "OTA_STORAGE"; emit(); completion(error) }
+    }
+    private func startTransfer(manifest m: DirectOtaManifest, artifact a: DirectOtaArtifact, host: CapacitorUpdaterPlugin, cellular: Bool, operation: Int, delta: DirectOtaDelta?, retryFullOnCorruption: Bool = true, completion: @escaping (Error?) -> Void) {
+        let length = delta?.bytes ?? a.delta?.fullBytes ?? a.bytes
+        let path = folder.appendingPathComponent(a.sha256 + (delta == nil ? ".part" : ".delta.part"))
+        transferTotal = length; phase = "downloading"; error = nil; received = 0; emit()
+        let downloader = DirectOtaTransfer(url: URL(string: a.url)!, path: path, total: length,
+            rangeStart: delta?.offset ?? 0, objectTotal: a.bytes, cellular: cellular, progress: { [weak self] bytes in
                 DispatchQueue.main.async { guard let self, self.generation == operation else { return }; self.received = bytes; self.emit() }
             }) { [weak self] result in
                 DispatchQueue.main.async {
@@ -164,13 +178,24 @@ final class DirectOtaController {
                     self.transfer = nil
                     guard self.generation == operation else { completion(DirectOtaFailure.paused); return }
                     switch result {
-                    case .failure(let failure): self.phase = "paused"; self.error = (failure as? DirectOtaFailure)?.rawValue ?? "OTA_NETWORK"; self.emit(); completion(failure)
+                    case .failure(let failure):
+                        if delta != nil, (failure as? DirectOtaFailure) == .invalid {
+                            try? FileManager.default.removeItem(at: path)
+                            self.startTransfer(manifest: m, artifact: a, host: host, cellular: cellular, operation: operation, delta: nil, completion: completion)
+                            return
+                        }
+                        if delta == nil, retryFullOnCorruption, (failure as? DirectOtaFailure) == .invalid {
+                            try? FileManager.default.removeItem(at: path)
+                            self.startTransfer(manifest: m, artifact: a, host: host, cellular: cellular, operation: operation, delta: nil, retryFullOnCorruption: false, completion: completion)
+                            return
+                        }
+                        self.phase = "paused"; self.error = (failure as? DirectOtaFailure)?.rawValue ?? "OTA_NETWORK"; self.emit(); completion(failure)
                     case .success:
                         guard self.manifest?.artifact?.sha256 == a.sha256 else { completion(DirectOtaFailure.paused); return }
                         self.importing = true; self.phase = "verifying"; self.emit()
                         DispatchQueue.global(qos: .utility).async {
                             do {
-                                try self.importArchive(path, manifest: m, host: host)
+                                try self.importArchive(path, manifest: m, host: host, delta: delta)
                                 DispatchQueue.main.async {
                                     self.importing = false
                                     guard self.generation == operation, self.manifest?.artifact?.sha256 == a.sha256 else { completion(DirectOtaFailure.paused); return }
@@ -181,6 +206,16 @@ final class DirectOtaController {
                                 DispatchQueue.main.async {
                                     self.importing = false
                                     guard self.generation == operation else { completion(DirectOtaFailure.paused); return }
+                                    if delta != nil, (error as? DirectOtaFailure) != .storage {
+                                        try? FileManager.default.removeItem(at: path)
+                                        self.startTransfer(manifest: m, artifact: a, host: host, cellular: cellular, operation: operation, delta: nil, completion: completion)
+                                        return
+                                    }
+                                    if delta == nil, retryFullOnCorruption, (error as? DirectOtaFailure) == .invalid {
+                                        try? FileManager.default.removeItem(at: path)
+                                        self.startTransfer(manifest: m, artifact: a, host: host, cellular: cellular, operation: operation, delta: nil, retryFullOnCorruption: false, completion: completion)
+                                        return
+                                    }
                                     self.phase = "error"; self.error = (error as? DirectOtaFailure)?.rawValue ?? "OTA_INVALID"; self.emit(); completion(error)
                                 }
                             }
@@ -188,16 +223,35 @@ final class DirectOtaController {
                     }
                 }
             }
-            transfer = downloader; emit(); downloader.start()
-        } catch { phase = "error"; self.error = (error as? DirectOtaFailure)?.rawValue ?? "OTA_STORAGE"; emit(); completion(error) }
+        transfer = downloader; downloader.start()
     }
-    private func importArchive(_ encrypted: URL, manifest m: DirectOtaManifest, host: CapacitorUpdaterPlugin) throws {
+    private func importArchive(_ encrypted: URL, manifest m: DirectOtaManifest, host: CapacitorUpdaterPlugin, delta: DirectOtaDelta?) throws {
         guard let a = m.artifact else { throw DirectOtaFailure.invalid }
-        guard CryptoCipher.calcChecksum(filePath: encrypted) == a.sha256 else { try? FileManager.default.removeItem(at: encrypted); throw DirectOtaFailure.invalid }
         let zip = folder.appendingPathComponent(a.sha256 + ".zip")
-        try? FileManager.default.removeItem(at: zip); try FileManager.default.copyItem(at: encrypted, to: zip)
+        try? FileManager.default.removeItem(at: zip)
         defer { try? FileManager.default.removeItem(at: zip) }
-        try CryptoCipher.decryptFile(filePath: zip, publicKey: host.implementation.publicKey, sessionKey: a.sessionKey, version: m.version)
+        if let delta {
+            guard CryptoCipher.calcChecksum(filePath: encrypted) == delta.sha256 else { throw DirectOtaFailure.invalid }
+            let decoded = folder.appendingPathComponent(a.sha256 + ".delta.decoded")
+            defer { try? FileManager.default.removeItem(at: decoded) }
+            do {
+                try? FileManager.default.removeItem(at: decoded)
+                try FileManager.default.copyItem(at: encrypted, to: decoded)
+                try CryptoCipher.decryptFile(filePath: decoded, publicKey: host.implementation.publicKey, sessionKey: delta.sessionKey, version: m.version)
+                let patchHash = try CryptoCipher.decryptChecksum(checksum: delta.checksum, publicKey: host.implementation.publicKey)
+                guard patchHash == CryptoCipher.calcChecksum(filePath: decoded) else { throw DirectOtaFailure.invalid }
+                let base = folder.appendingPathComponent(delta.baseChecksum + ".base")
+                let rebuilt = try DirectOtaProtocol.applyDelta(base: Data(contentsOf: base), patch: Data(contentsOf: decoded))
+                try rebuilt.write(to: zip, options: .atomic)
+            } catch { throw DirectOtaFailure.invalid }
+        } else {
+            let fullHash = a.delta?.fullSha256 ?? a.sha256
+            guard CryptoCipher.calcChecksum(filePath: encrypted) == fullHash else {
+                try? FileManager.default.removeItem(at: encrypted); throw DirectOtaFailure.invalid
+            }
+            try FileManager.default.copyItem(at: encrypted, to: zip)
+            try CryptoCipher.decryptFile(filePath: zip, publicKey: host.implementation.publicKey, sessionKey: a.sessionKey, version: m.version)
+        }
         let checksum = try CryptoCipher.decryptChecksum(checksum: a.checksum, publicKey: host.implementation.publicKey)
         guard checksum.count == 64, checksum == CryptoCipher.calcChecksum(filePath: zip) else { throw DirectOtaFailure.invalid }
         let archive = try Archive(url: zip, accessMode: .read)
@@ -210,7 +264,20 @@ final class DirectOtaController {
         }
         guard count == a.files, size == UInt64(a.unpackedBytes), names.contains("index.html") else { throw DirectOtaFailure.invalid }
         try host.implementation.directOtaImport(zip: zip, id: bundleId(a.sha256), version: m.version, checksum: checksum)
+        cacheBase(zip, checksum: checksum)
         try? FileManager.default.removeItem(at: encrypted)
+    }
+    private func cacheBase(_ zip: URL, checksum: String) {
+        guard ((try? zip.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? Int.max) <= 5242880 else { return }
+        let destination = folder.appendingPathComponent(checksum + ".base")
+        do {
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.copyItem(at: zip, to: destination)
+            let retained = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])
+                .filter { $0.lastPathComponent.range(of: "^[0-9a-f]{64}\\.base$", options: .regularExpression) != nil }
+                .sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) < ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+            for stale in retained.dropLast(2) { try? FileManager.default.removeItem(at: stale) }
+        } catch { /* Cache is optional; the next update can download its full segment. */ }
     }
     func mayActivate(_ id: String) -> Bool { guard let a = manifest?.artifact else { return false }; return id == bundleId(a.sha256) && imported(a.sha256) && !quarantine.contains(a.sha256) }
     func activate() throws {
@@ -262,7 +329,7 @@ final class DirectOtaController {
 final class DirectOtaTransfer: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate {
     let cellular: Bool
     private let url: URL, path: URL
-    private let total: Int
+    private let total: Int, rangeStart: Int, objectTotal: Int
     private var bytes = 0, lastEmission = 0
     private var lastEmissionTime = ProcessInfo.processInfo.systemUptime
     private var handle: FileHandle?
@@ -271,8 +338,8 @@ final class DirectOtaTransfer: NSObject, URLSessionDataDelegate, URLSessionTaskD
     private var failure: Error?
     private let progress: (Int) -> Void
     private let completion: (Result<Void, Error>) -> Void
-    init(url: URL, path: URL, total: Int, cellular: Bool, progress: @escaping (Int) -> Void, completion: @escaping (Result<Void, Error>) -> Void) {
-        self.url = url; self.path = path; self.total = total; self.cellular = cellular; self.progress = progress; self.completion = completion
+    init(url: URL, path: URL, total: Int, rangeStart: Int = 0, objectTotal: Int? = nil, cellular: Bool, progress: @escaping (Int) -> Void, completion: @escaping (Result<Void, Error>) -> Void) {
+        self.url = url; self.path = path; self.total = total; self.rangeStart = rangeStart; self.objectTotal = objectTotal ?? total; self.cellular = cellular; self.progress = progress; self.completion = completion
     }
     func start() {
         do {
@@ -287,7 +354,9 @@ final class DirectOtaTransfer: NSObject, URLSessionDataDelegate, URLSessionTaskD
             let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
             session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
             var request = URLRequest(url: url); request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-            if bytes > 0 { request.setValue("bytes=\(bytes)-", forHTTPHeaderField: "Range") }
+            if bytes > 0 || rangeStart > 0 || total < objectTotal {
+                request.setValue("bytes=\(rangeStart + bytes)-\(rangeStart + total - 1)", forHTTPHeaderField: "Range")
+            }
             task = session?.dataTask(with: request); task?.resume()
         } catch { completion(.failure(DirectOtaFailure.storage)) }
     }
@@ -296,8 +365,10 @@ final class DirectOtaTransfer: NSObject, URLSessionDataDelegate, URLSessionTaskD
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let http = response as? HTTPURLResponse else { failure = DirectOtaFailure.network; completionHandler(.cancel); return }
         do {
-            if http.statusCode == 200 { try handle?.truncate(atOffset: 0); try handle?.seek(toOffset: 0); bytes = 0 }
-            else if http.statusCode != 206 || !DirectOtaProtocol.validRange(http.value(forHTTPHeaderField: "Content-Range"), offset: bytes, total: total) { throw DirectOtaFailure.network }
+            if http.statusCode == 200 && rangeStart == 0 && total == objectTotal { try handle?.truncate(atOffset: 0); try handle?.seek(toOffset: 0); bytes = 0 }
+            else if http.statusCode != 206 || http.value(forHTTPHeaderField: "Content-Range") != "bytes \(rangeStart + bytes)-\(rangeStart + total - 1)/\(objectTotal)" {
+                throw [408,429,500,502,503,504].contains(http.statusCode) ? DirectOtaFailure.network : DirectOtaFailure.invalid
+            }
             if response.expectedContentLength >= 0 && response.expectedContentLength != Int64(total - bytes) { throw DirectOtaFailure.invalid }
             completionHandler(.allow)
         } catch { failure = error; completionHandler(.cancel) }

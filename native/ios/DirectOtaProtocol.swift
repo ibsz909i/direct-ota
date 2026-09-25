@@ -5,6 +5,12 @@ import CryptoKit
 struct DirectOtaArtifact: Codable {
     let path: String, url: String, sha256: String, checksum: String, sessionKey: String
     let bytes: Int, unpackedBytes: Int, files: Int
+    let delta: DirectOtaDelta?
+}
+struct DirectOtaDelta: Codable {
+    let fromSha256: String, baseChecksum: String, fullSha256: String, sha256: String
+    let checksum: String, sessionKey: String
+    let fullBytes: Int, offset: Int, bytes: Int
 }
 struct DirectOtaLimits {
     let archiveBytes: Int, unpackedBytes: Int, files: Int
@@ -73,7 +79,10 @@ enum DirectOtaProtocol {
         let action = object["action"] as? String
         guard Set(object.keys) == (action == "release" ? common.union(object["mode"] == nil ? ["artifact"] : ["artifact", "mode"]) : common) else { throw DirectOtaFailure.invalid }
         if action == "release" {
-            guard let artifact = object["artifact"] as? [String: Any], Set(artifact.keys) == ["path", "url", "sha256", "bytes", "unpackedBytes", "files", "checksum", "sessionKey"] else { throw DirectOtaFailure.invalid }
+            guard let artifact = object["artifact"] as? [String: Any], Set(artifact.keys) == (artifact["delta"] == nil ? ["path", "url", "sha256", "bytes", "unpackedBytes", "files", "checksum", "sessionKey"] : ["path", "url", "sha256", "bytes", "unpackedBytes", "files", "checksum", "sessionKey", "delta"]) else { throw DirectOtaFailure.invalid }
+            if let delta = artifact["delta"] {
+                guard let fields = delta as? [String: Any], Set(fields.keys) == ["fromSha256", "baseChecksum", "fullBytes", "fullSha256", "offset", "bytes", "sha256", "checksum", "sessionKey"] else { throw DirectOtaFailure.invalid }
+            }
         }
         let m = try JSONDecoder().decode(DirectOtaManifest.self, from: payload)
         let timestampPattern = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
@@ -101,13 +110,61 @@ enum DirectOtaProtocol {
               p[2].range(of: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", options: .regularExpression) != nil,
               p[3] == a.sha256 + ".zip",
               a.url == artifactBaseUrl + "/" + a.path else { throw DirectOtaFailure.invalid }
-        let session = a.sessionKey.split(separator: ":").map(String.init)
-        guard session.count == 2, Data(base64Encoded: session[0])?.count == 16, Data(base64Encoded: session[1])?.count == 256,
-              a.checksum.range(of: "^[0-9a-f]{512}$", options: .regularExpression) != nil || Data(base64Encoded: a.checksum)?.count == 256 else { throw DirectOtaFailure.invalid }
+        guard validEnvelope(a.checksum, a.sessionKey) else { throw DirectOtaFailure.invalid }
+        if let d = a.delta {
+            guard d.fromSha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+                  d.baseChecksum.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+                  d.fullSha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+                  d.sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil,
+                  d.fromSha256 != a.sha256, d.fullBytes > 0, d.bytes > 0,
+                  d.offset == d.fullBytes, d.fullBytes <= limits.archiveBytes,
+                  d.bytes <= 5242880, d.bytes < d.fullBytes,
+                  d.fullBytes + d.bytes == a.bytes, validEnvelope(d.checksum,d.sessionKey) else { throw DirectOtaFailure.invalid }
+        }
         return m
+    }
+    private static func validEnvelope(_ checksum: String, _ key: String) -> Bool {
+        let session = key.split(separator: ":").map(String.init)
+        return session.count == 2 && Data(base64Encoded: session[0])?.count == 16 &&
+            Data(base64Encoded: session[1])?.count == 256 &&
+            (checksum.range(of: "^[0-9a-f]{512}$", options: .regularExpression) != nil ||
+                Data(base64Encoded: checksum)?.count == 256)
     }
     static func validRange(_ value: String?, offset: Int, total: Int) -> Bool {
         value == "bytes \(offset)-\(total - 1)/\(total)"
+    }
+    /** Apply a signed-base binary patch only after its encrypted segment was verified. */
+    static func applyDelta(base: Data, patch: Data) throws -> Data {
+        let magic = Data("DOTA-DLT1".utf8), headerBytes = 81, ceiling = 5242880
+        guard base.count <= ceiling, patch.count >= headerBytes, patch.count <= ceiling + 900081,
+              patch.prefix(magic.count) == magic,
+              patch.subdata(in: 9..<41) == Data(SHA256.hash(data: base)) else { throw DirectOtaFailure.invalid }
+        func word(_ at: Int) throws -> Int {
+            guard at >= 0, at + 4 <= patch.count else { throw DirectOtaFailure.invalid }
+            return patch[at..<at+4].reduce(0) { ($0 << 8) | Int($1) }
+        }
+        let targetBytes = try word(73), operations = try word(77)
+        guard (1...ceiling).contains(targetBytes), (1...100000).contains(operations) else { throw DirectOtaFailure.invalid }
+        var result = Data(); result.reserveCapacity(targetBytes)
+        var cursor = headerBytes
+        for _ in 0..<operations {
+            guard cursor < patch.count else { throw DirectOtaFailure.invalid }
+            let kind = patch[cursor]; cursor += 1
+            if kind == 0 {
+                let offset = try word(cursor), count = try word(cursor + 4); cursor += 8
+                guard count > 0, offset <= base.count, count <= base.count - offset,
+                      count <= targetBytes - result.count else { throw DirectOtaFailure.invalid }
+                result.append(base.subdata(in: offset..<offset+count))
+            } else if kind == 1 {
+                let count = try word(cursor); cursor += 4
+                guard count > 0, count <= targetBytes - result.count,
+                      count <= patch.count - cursor else { throw DirectOtaFailure.invalid }
+                result.append(patch.subdata(in: cursor..<cursor+count)); cursor += count
+            } else { throw DirectOtaFailure.invalid }
+        }
+        guard cursor == patch.count, result.count == targetBytes,
+              patch.subdata(in: 41..<73) == Data(SHA256.hash(data: result)) else { throw DirectOtaFailure.invalid }
+        return result
     }
     static func safeEntry(_ path: String) -> Bool {
         let parts = path.split(separator: "/", omittingEmptySubsequences: false)

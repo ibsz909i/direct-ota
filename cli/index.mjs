@@ -22,7 +22,7 @@ direct-ota patch
 direct-ota doctor [--fix] [--remote --platform ios|android] [--channel internal]
 direct-ota test-provider [--write]  (write mode uses a synthetic runtime; use an isolated service)
 direct-ota publish --platform ios|android --version 1.0.1 [--mode required|background] [--out DIR]
-direct-ota prepare --platform ios|android --version 1.0.1 [--channel internal] [--rollout 100] [--mode required|background] [--out DIR]
+direct-ota prepare --platform ios|android --version 1.0.1 [--channel internal] [--rollout 100] [--mode required|background] [--delta-from PRIOR_RELEASE_DIR] [--out DIR]
 direct-ota upload --release DIR
 direct-ota promote --release DIR
 direct-ota status --platform ios|android [--channel internal]
@@ -43,7 +43,7 @@ See docs/quickstart.md and AGENTS.md for setup and release rules.
 `;
 try {
   const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries([
-    'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','rollout','release-id','name','account-id','target','bucket','limit','cursor','gate-min-ready','gate-max-failures','mode'
+    'project','identity','app-id','base-url','provider','channel','platform','version','out','release','from','delta-from','rollout','release-id','name','account-id','target','bucket','limit','cursor','gate-min-ready','gate-max-failures','mode'
   ].map(name => [name, {type: 'string'}]).concat([
     ['help', {type:'boolean', short:'h'}], ['plan', {type:'boolean'}], ['yes', {type:'boolean'}], ['remote', {type:'boolean'}], ['write', {type:'boolean'}], ['apply', {type:'boolean'}], ['dedicated', {type:'boolean'}], ['fix', {type:'boolean'}], ['finish', {type:'boolean'}], ['health-gate', {type:'boolean'}]
   ]))});
