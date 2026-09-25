@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Add one-command internal publishing that builds the host app, preserves immutable candidates, and confirms the promoted channel head.
+- Add a read-only remote doctor that verifies signed metadata, public artifact integrity, and byte-range support.
+- Refuse a platform release when that platform has no synced native configuration.
+
 ## 0.2.0
 
 - Guided local Supabase setup for Capacitor 8 apps, with a read-only plan and explicit application.

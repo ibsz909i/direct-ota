@@ -16,7 +16,7 @@ export async function selector(root, options) {
 export async function prepare(root, config, identity, options) {
   const {verifyNativeProject} = await import('./doctor.mjs');
   const selected = await selector(root, options);
-  await verifyNativeProject(root, config);
+  await verifyNativeProject(root, config, selected.platform);
   const status = await command(config, identity, 'status', selected);
   if (!Number.isSafeInteger(status.sequence) || status.sequence < 0) throw new Error('Invalid channel sequence');
   const releaseId = randomUUID();

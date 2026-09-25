@@ -43,7 +43,7 @@ Requires Node 24+, Python 3, and an existing Capacitor 8 project. For native bui
 Install the tarball attached to [the latest release](https://github.com/ibsz909i/direct-ota/releases). For a Capacitor 8 app using Supabase to deliver updates, preview and run the guided local setup:
 
 ```sh
-npm install --save-exact ./direct-ota-0.2.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
+npm install --save-exact ./direct-ota-0.3.0.tgz @capgo/capacitor-updater@8.51.25 @capacitor/app@8
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co --plan
 npx direct-ota setup --provider supabase --base-url https://YOUR_PROJECT.supabase.co
 ```
@@ -56,14 +56,11 @@ Keep both native plugins as direct app dependencies so Capacitor 8 discovers the
 Continue with the [setup guide](docs/quickstart.md). It covers deploying a provider, integrating the native updater, protecting in-progress actions, and sending your first update. After the initial native release, the everyday flow is:
 
 ```sh
-npm run build
-npx direct-ota doctor
-npx direct-ota prepare --platform ios --version 1.0.1 --out .direct-ota/ios-1.0.1
-npx direct-ota upload --release .direct-ota/ios-1.0.1
-npx direct-ota promote --release .direct-ota/ios-1.0.1
+npx direct-ota publish --platform ios --version 1.0.1
+npx direct-ota doctor --remote --platform ios
 ```
 
-Test the internal channel first. Each platform has its own channel head. Production rollouts are explicit operator actions; see [publishing and recovery](docs/publishing.md).
+`publish` runs the host app's `npm run build`, checks the native runtime, prepares and uploads an immutable bundle, promotes it to **internal**, then confirms the channel head. Run it once per platform. `doctor --remote` verifies the signed live instruction, public artifact bytes, and range downloads. Test the internal update on a device before advancing production. Each platform has its own channel head; production rollouts remain explicit operator actions. See [publishing and recovery](docs/publishing.md).
 
 ## Release safety
 

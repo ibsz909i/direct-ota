@@ -4,21 +4,20 @@ Run commands in the configured application directory. Use `--project DIR` when w
 
 ## A normal frontend fix
 
-1. Review the diff and test the changed behavior. Run type checking and the production build. Keep unrelated local changes out of the release snapshot.
-2. Run `npx direct-ota doctor`. It rejects native runtime drift. Native changes need a new native release.
-3. Prepare and upload an internal candidate:
+1. Review the diff, test the changed behavior, and run the app's type check if available. Keep unrelated local changes out of the release snapshot.
+2. Publish an internal candidate:
 
 ```sh
-npx direct-ota prepare --platform ios --channel internal --version 1.0.1 --out .direct-ota/ios-1.0.1
-npx direct-ota upload --release .direct-ota/ios-1.0.1
-npx direct-ota promote --release .direct-ota/ios-1.0.1
-npx direct-ota status --platform ios --channel internal
+npx direct-ota publish --platform ios --version 1.0.1
+npx direct-ota doctor --remote --platform ios
 ```
 
-Repeat preparation for Android with its own output directory. The CLI packages the existing `webDir`; it does not secretly run your application's build or tests. A successful build must precede `prepare`.
+Repeat `publish` for Android. The command runs the host app's `npm run build`, checks the native runtime, prepares the existing `webDir`, uploads, promotes to **internal**, and checks the resulting channel head. It never runs tests automatically and never promotes production. `doctor --remote` reads the deployed public endpoint, verifies the signed instruction and complete artifact hash, and checks byte-range delivery. A remote diagnostic does not prove activation or startup on a device.
 
-4. On an internal app, verify download, activation, startup health, and the changed feature. Keep the publishing computer offline during a download test to prove delivery does not depend on it.
-5. Promote the already-tested artifact to production. Each command creates a newer signed instruction:
+For existing scripts, `prepare`, `upload`, and `promote` remain available. If `publish` fails after preparation, it prints the retained release directory. Check `status`; then retry `upload --release DIR` and `promote --release DIR` as appropriate. A candidate is inactive until promotion. If channel status confirms the signed candidate despite a lost response, do not prepare a duplicate.
+
+3. On an internal app, verify download, activation, startup health, and the changed feature. Keep the publishing computer offline during a download test to prove delivery does not depend on it.
+4. Promote the already-tested artifact to production. Each command creates a newer signed instruction. Use the release directory returned by `publish`:
 
 ```sh
 npx direct-ota rollout --from .direct-ota/ios-1.0.1 --platform ios --channel production --rollout 1

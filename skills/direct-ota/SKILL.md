@@ -18,9 +18,9 @@ Follow docs/quickstart.md and the selected provider guide. For a new Capacitor 8
 ## Publish
 
 1. Identify the authorized app/environment/platform/channel and intended frontend change.
-2. Inspect the diff. Run tests for the changed behavior, type checking, and the production build. Broaden coverage only for affected shared behavior, security, native dependencies, data formats, or backend contracts.
-3. Run `npx direct-ota doctor`. Stop OTA preparation on native drift and explain the required native release.
-4. Run `prepare`, `upload`, and `promote` for the internal channel using docs/publishing.md. Do not use raw service keys or edit production tables.
+2. Inspect the diff. Run tests for the changed behavior and type checking. Broaden coverage only for affected shared behavior, security, native dependencies, data formats, or backend contracts.
+3. Run `npx direct-ota publish --platform ios|android --version SEMVER` for each target. It runs the host build, local native doctor, prepare, upload, internal promotion, and channel confirmation. Do not use raw service keys or edit production tables. If it fails after preparation, check status and use the retained release directory for a safe retry.
+4. Run `npx direct-ota doctor --remote --platform ios|android` to check the deployed public metadata, byte ranges, and artifact hash. Stop on native drift or remote failure.
 5. Verify an actual target app installs and starts healthy, then check the changed feature. Do not call a server response a device test.
 6. Promote production through the requested stages. Pause on startup, integrity, or core-flow failures. Use a newer signed rollback or withdrawal instruction if needed.
 7. Report the released version, platforms/channels, sequence/release IDs, checks completed, and untested scope. Never include private keys, tokens, or signed upload URLs.

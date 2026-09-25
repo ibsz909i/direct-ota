@@ -1,4 +1,4 @@
-# Verification for 0.2.0
+# Verification for 0.3.0
 
 The following checks were performed on the generalized Direct OTA package. The [case study](case-study.md) separately describes observations from the original integration.
 
@@ -15,6 +15,9 @@ The following checks were performed on the generalized Direct OTA package. The [
 - Supabase handler admission, bounded runtime catalog lookup, signature checks, and verified-artifact promotion.
 - SQL migration, privileges, restrictive Storage policies against deliberately broad legacy policies, replay, concurrent compare-and-swap, rollback, and direct withdrawal in an isolated PostgreSQL 17 database.
 - A local HTTPS integration using the real CLI: initialize, prepare, upload twice, promote, download/hash-check, staged rollout, rollback, and withdraw.
+- The short `publish` path: host build failure leaves the channel untouched; a successful build creates, uploads, promotes, and confirms an internal release. Direct production publishing is refused.
+- Preparation rejects an Android release when only an iOS native target is synced.
+- The read-only remote doctor: detects an empty deployed channel, verifies a signed active manifest, artifact size, byte-range support and full SHA-256, and rejects corrupted delivered bytes.
 - Guided setup preview and application in a synthetic Capacitor 8 host: app and platform detection, no changes in preview, create-only identity/provider output, public SQL and Edge trust values, private file permissions, and refusal to overwrite existing work.
 - JSON Capacitor config fingerprinting: generated updater settings do not create a runtime loop; other native configuration changes still change the fingerprint. Symlinked native patch targets are rejected.
 
@@ -22,7 +25,7 @@ Run `npm run check` for the portable suite. Native Swift checks require macOS/Xc
 
 ## Fresh native fixture
 
-A newly created Capacitor 8 project installed the 0.2.0 package tarball, ran guided setup, merged the generated settings, and synced the native projects. It compiled successfully for the iOS Simulator with Xcode and for Android with Gradle/OpenJDK 21. The final native overlays were used. After iOS package resolution, the runtime was regenerated, both platforms were rebuilt, and `direct-ota doctor` verified generated and copied native plugin settings.
+A newly created Capacitor 8 project installed the 0.2.0 package tarball, ran guided setup, merged the generated settings, and synced the native projects. It compiled successfully for the iOS Simulator with Xcode and for Android with Gradle/OpenJDK 21. The final native overlays were used. After iOS package resolution, the runtime was regenerated, both platforms were rebuilt, and `direct-ota doctor` verified generated and copied native plugin settings. This native build evidence is from 0.2.0; version 0.3.0 changes only the publishing CLI and its diagnostics.
 
 A successful compile proves native integration can build. It does not prove every OS/device/network combination, a healthy installed app, or an end-to-end physical-device update.
 

@@ -30,8 +30,8 @@ Read skills/direct-ota/SKILL.md and docs/publishing.md. Use the configured CLI, 
 
 - Confirm the app, environment, platform, channel, and intended change from repository configuration and the user's request.
 - Test the changed feature and the integration paths it affects. Run type checking and the production build. Do not expand a small visual change into unrelated manual testing; broaden checks when the change touches authentication, persistence, native integration, updater security, or shared backend contracts.
-- Check native compatibility with `direct-ota doctor`. Native drift requires a new native build, not a bypass.
-- Prepare, upload, and inspect an internal release. Verify an actual target app downloads, launches, and reports healthy before claiming device success.
+- Run `direct-ota publish --platform ... --version ...` for each platform; it builds, checks native compatibility, prepares, uploads, promotes internally, and confirms the channel head. Native drift requires a new native build, not a bypass.
+- Run `direct-ota doctor --remote --platform ...` to verify deployed metadata, artifact integrity, and range delivery. Verify an actual target app downloads, launches, and reports healthy before claiming device success.
 - Promote production in explicit stages. Stop on confirmed startup failures, integrity failures, or core-flow regressions. Follow the user's existing deployment authorization; do not repeatedly request permission already given.
 - Report version, platform/channel, sequence, release ID, verification performed, and any untested scope. A successful upload is not proof of a healthy installed update.
 

@@ -3,7 +3,7 @@ import {join} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 import {fingerprintNative, nativePluginConfig, verifyCapacitorPlugins} from './native.mjs';
 
-export async function verifyNativeProject(root, config) {
+export async function verifyNativeProject(root, config, targetPlatform) {
   verifyCapacitorPlugins(root);
   const recorded = JSON.parse(await readFile(join(root, 'direct-ota.runtime.json'), 'utf8'));
   const runtime = fingerprintNative(root, config);
@@ -11,14 +11,16 @@ export async function verifyNativeProject(root, config) {
   const generated = JSON.parse(await readFile(join(root, 'direct-ota.capacitor.json'), 'utf8'));
   const expected = nativePluginConfig(config, runtime, generated.directOtaChannel);
   if (!isDeepStrictEqual(generated, expected)) throw new Error('Generated native plugin configuration differs from the pinned trust/settings');
-  let platforms = 0;
+  let platforms = 0, targetFound = false;
   for (const [platform, path] of [['ios', 'ios/App/App/capacitor.config.json'], ['android', 'android/app/src/main/assets/capacitor.config.json']]) {
     let native;
     try { native = JSON.parse(await readFile(join(root, path), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') continue; throw error; }
     if (!isDeepStrictEqual(native.plugins?.CapacitorUpdater, expected)) throw new Error(`${platform} plugin configuration is stale or inconsistent. Merge generated settings and sync before building.`);
+    if (platform === targetPlatform) targetFound = true;
     platforms++;
   }
   if (!platforms) throw new Error('No synced native configuration found. Add a target platform and run Capacitor sync.');
+  if (targetPlatform && !targetFound) throw new Error(`No synced ${targetPlatform} native configuration found. Add and sync that platform before publishing.`);
   return {runtime, platforms};
 }
